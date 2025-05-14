@@ -18,6 +18,7 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  reactStrictMode: false, // Set to false for development to avoid double useEffect calls, true for production
 };
 
 export default nextConfig;
