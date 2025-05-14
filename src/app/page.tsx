@@ -15,12 +15,12 @@ import { LoadingSpinner } from '@/components/game/LoadingSpinner';
 import { SceneVisualization } from '@/components/game/SceneVisualization';
 import { StartMenu } from '@/components/menu/StartMenu';
 import { PlayerHealthDisplay } from '@/components/game/PlayerHealthDisplay';
-import { InventoryDisplay } from '@/components/game/InventoryDisplay'; // New Import
+import { InventoryDisplay } from '@/components/game/InventoryDisplay'; 
 import { AlertCircle, RotateCcw, SaveIcon } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 
 const MAX_HEALTH = 2;
-const SAVE_GAME_KEY = 'dualDreadSaveData_v3'; // Increment version for new state structure
+const SAVE_GAME_KEY = 'dualDreadSaveData_v3'; 
 
 interface GameState {
   narration: string;
@@ -36,7 +36,7 @@ interface GameState {
   turnCount: number;
   playerHealth: number;
   geminiHealth: number;
-  inventory: string[]; // New: Player inventory
+  inventory: string[];
 }
 
 const FIXED_STARTING_SCENE = "You find yourselves standing before an old, weathered wooden fence gate. Beyond it, a barely visible path disappears into the dark, foreboding woods. It's the middle of the night, the air is cold, and you realize you are utterly lost.";
@@ -153,6 +153,45 @@ export default function DualDreadPage() {
     setImageLoading(false);
   }, [toast]);
 
+  const speakNarration = useCallback((text: string, turnCount: number) => {
+    if (typeof window !== 'undefined' && window.speechSynthesis && text) {
+      speechSynthesis.cancel(); // Stop any previous speech
+  
+      const utterance = new SpeechSynthesisUtterance(text);
+  
+      // Apply progressive distortion
+      if (turnCount >= 15) { // Very Distorted/Demonic
+        utterance.pitch = 0.3; 
+        utterance.rate = 0.6;  
+      } else if (turnCount >= 10) { // Disturbing
+        utterance.pitch = 0.6; 
+        utterance.rate = 0.8;  
+      } else if (turnCount >= 5) { // Slightly Unsettling
+        utterance.pitch = 0.9; 
+        utterance.rate = 0.9;  
+      } else { // Normal
+        utterance.pitch = 1.0;
+        utterance.rate = 1.0;
+      }
+      
+      speechSynthesis.speak(utterance);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (gameState.narration && gameStarted && !loading && !gameState.gameOver) {
+      speakNarration(gameState.narration, gameState.turnCount);
+    }
+    // Cleanup speech synthesis on component unmount or if narration quickly changes
+    return () => {
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        speechSynthesis.cancel();
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameState.narration, gameState.turnCount, gameStarted, loading, gameState.gameOver, speakNarration]);
+
+
   const handleGenerateSceneImage = useCallback(async (currentSceneDescription: string, currentTurnCount: number) => {
     if (!currentSceneDescription) return;
     setImageLoading(true);
@@ -179,6 +218,10 @@ export default function DualDreadPage() {
     setGameState(initialGameState); 
     setSceneImageUrl(null);
     setImageError(null);
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      speechSynthesis.cancel(); // Stop any speech from previous game
+    }
+
 
     const randomFlavor = PREDEFINED_INITIAL_FLAVORS[Math.floor(Math.random() * PREDEFINED_INITIAL_FLAVORS.length)];
 
@@ -186,10 +229,10 @@ export default function DualDreadPage() {
       const initialNarrationInput: NarrateAdventureInput = {
         userChoice: randomFlavor.initialUserChoice,
         geminiChoice: randomFlavor.initialGeminiChoice,
-        currentSceneDescription: FIXED_STARTING_SCENE, // Always start here
+        currentSceneDescription: FIXED_STARTING_SCENE, 
         playerHealth: MAX_HEALTH,
         geminiHealth: MAX_HEALTH,
-        turnCount: 1, // First turn
+        turnCount: 1, 
         currentInventory: [],
       };
       const response = await narrateAdventure(initialNarrationInput);
@@ -222,13 +265,13 @@ export default function DualDreadPage() {
     } catch (error) {
       handleError(error, "Failed to initialize new game narration");
        setGameState(prev => ({
-        ...initialGameState, // Reset to truly initial state on error
+        ...initialGameState, 
         sceneDescription: FIXED_STARTING_SCENE,
-        narration: randomFlavor.firstNarration, // Use flavor narration as fallback
-        challenge: randomFlavor.initialChallenge, // Use flavor challenge
+        narration: randomFlavor.firstNarration, 
+        challenge: randomFlavor.initialChallenge, 
         availableChoices: getDynamicChoices(FIXED_STARTING_SCENE, randomFlavor.initialChallenge, 0),
-        isPlayerTurn: true, // Ensure player can act
-        turnCount: 1, // Still count as turn 1 attempt
+        isPlayerTurn: true, 
+        turnCount: 1, 
       }));
     } finally {
       setLoading(false);
@@ -238,7 +281,6 @@ export default function DualDreadPage() {
 
   useEffect(() => {
     if (gameStarted && gameState.sceneDescription && !gameState.gameOver && !loading) {
-      // Pass turnCount to image generation
       handleGenerateSceneImage(gameState.sceneDescription, gameState.turnCount);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -259,7 +301,7 @@ export default function DualDreadPage() {
   };
 
   const saveGame = () => {
-    if (gameState.gameOver && gameState.turnCount > 0) { // Allow saving if game hasn't even started properly.
+    if (gameState.gameOver && gameState.turnCount > 0) { 
       toast({ title: "Cannot Save", description: "The story has concluded.", variant: "destructive" });
       return;
     }
@@ -283,6 +325,9 @@ export default function DualDreadPage() {
   const loadGame = () => {
     setLoading(true);
     setLoadingMessage("Reliving past dread...");
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      speechSynthesis.cancel(); // Stop any speech if loading a new game state
+    }
     try {
       const savedDataString = localStorage.getItem(SAVE_GAME_KEY);
       if (savedDataString) {
@@ -293,14 +338,14 @@ export default function DualDreadPage() {
           ...savedData.gameState, 
           playerHealth: savedData.gameState.playerHealth !== undefined ? savedData.gameState.playerHealth : MAX_HEALTH,
           geminiHealth: savedData.gameState.geminiHealth !== undefined ? savedData.gameState.geminiHealth : MAX_HEALTH,
-          inventory: savedData.gameState.inventory || [], // Ensure inventory is loaded
+          inventory: savedData.gameState.inventory || [], 
         };
 
         setGameState(loadedGameState);
         setSceneImageUrl(savedData.sceneImageUrl || null);
         setGameStarted(true);
         setImageError(null);
-        setImageLoading(false); // Ensure this is reset
+        setImageLoading(false); 
         toast({ title: "Game Loaded", description: "The nightmare continues..." });
 
         if (!loadedGameState.gameOver && loadedGameState.availableChoices.length === 0 && loadedGameState.turnCount > 0) {
@@ -334,6 +379,9 @@ export default function DualDreadPage() {
       geminiSelectedChoice: null, 
       geminiReasoning: null,
     }));
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      speechSynthesis.cancel(); // Stop current speech before new turn processing
+    }
 
     try {
       // Gemini's Turn
@@ -358,14 +406,14 @@ export default function DualDreadPage() {
         currentSceneDescription: gameState.sceneDescription, 
         playerHealth: gameState.playerHealth,
         geminiHealth: gameState.geminiHealth,
-        turnCount: gameState.turnCount + 1, // Increment turn count for the next state
+        turnCount: gameState.turnCount + 1, 
         currentInventory: gameState.inventory,
       };
       const narrationResponse = await narrateAdventure(narrateInput);
 
       let updatedInventory = [...gameState.inventory];
       if (narrationResponse.newItemFound) {
-        if (!updatedInventory.includes(narrationResponse.newItemFound)) { // Avoid duplicates simple check
+        if (!updatedInventory.includes(narrationResponse.newItemFound)) { 
           updatedInventory.push(narrationResponse.newItemFound);
         }
       }
@@ -411,7 +459,7 @@ export default function DualDreadPage() {
   };
 
   const handleRestartGame = () => {
-    setGameStarted(true); // Ensure gameStarted is true for new game init
+    setGameStarted(true); 
     initializeNewGame(); 
   };
   
@@ -520,3 +568,4 @@ export default function DualDreadPage() {
     </div>
   );
 }
+
