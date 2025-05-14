@@ -2,7 +2,6 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
-import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { narrateAdventure, type NarrateAdventureInput, type NarrateAdventureOutput } from '@/ai/flows/narrate-adventure';
@@ -14,6 +13,7 @@ import { PlayerInputArea } from '@/components/game/PlayerInputArea';
 import { GeminiStatus } from '@/components/game/GeminiStatus';
 import { LoadingSpinner } from '@/components/game/LoadingSpinner';
 import { SceneVisualization } from '@/components/game/SceneVisualization';
+import { StartMenu } from '@/components/menu/StartMenu'; // Import StartMenu
 import { AlertCircle, RotateCcw, HelpCircleIcon } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 
@@ -44,7 +44,7 @@ const initialGameState: GameState = {
   geminiReasoning: null,
   geminiHint: null,
   geminiIsStuck: false,
-  isPlayerTurn: false, // Will be set to true after initial narration
+  isPlayerTurn: false,
   gameOver: false,
   errorMessage: null,
   turnCount: 0,
@@ -70,8 +70,9 @@ function getDynamicChoices(sceneDescription: string, challenge: string, turnCoun
 
 
 export default function DualDreadPage() {
+  const [gameStarted, setGameStarted] = useState(false);
   const [gameState, setGameState] = useState<GameState>(initialGameState);
-  const [loading, setLoading] = useState(true); // Main game logic loading
+  const [loading, setLoading] = useState(false); // True during async game logic operations
   const { toast } = useToast();
 
   const [sceneImageUrl, setSceneImageUrl] = useState<string | null>(null);
@@ -88,7 +89,7 @@ export default function DualDreadPage() {
       variant: "destructive",
     });
     setLoading(false);
-    setImageLoading(false); // Ensure image loading also stops on general error
+    setImageLoading(false);
   }, [toast]);
 
   const handleGenerateSceneImage = useCallback(async (currentSceneDescription: string) => {
@@ -102,8 +103,7 @@ export default function DualDreadPage() {
     } catch (error) {
       console.error("Failed to generate scene image:", error);
       const errMessage = error instanceof Error ? error.message : String(error);
-      setImageError(`Image generation error: ${errMessage.slice(0,150)}`); // Truncate long messages
-      // setSceneImageUrl(null); // Optionally clear previous image on error, or keep it
+      setImageError(`Image generation error: ${errMessage.slice(0,150)}`);
     } finally {
       setImageLoading(false);
     }
@@ -112,8 +112,8 @@ export default function DualDreadPage() {
 
   const initializeGame = useCallback(async () => {
     setLoading(true);
-    setGameState(prev => ({ ...prev, errorMessage: null }));
-    setSceneImageUrl(null); // Clear previous image
+    setGameState(prev => ({ ...initialGameState, errorMessage: null, turnCount: 0 }));
+    setSceneImageUrl(null);
     setImageError(null);
 
     try {
@@ -129,11 +129,10 @@ export default function DualDreadPage() {
         narration: response.narration,
         sceneDescription: response.sceneDescription,
         challenge: response.challenge,
-        availableChoices: getDynamicChoices(response.sceneDescription, response.challenge, prev.turnCount),
+        availableChoices: getDynamicChoices(response.sceneDescription, response.challenge, 0), // turnCount is 0 initially
         isPlayerTurn: true,
-        turnCount: prev.turnCount + 1,
+        turnCount: 1, // First turn is effectively turn 1
       }));
-      // Image generation will be triggered by useEffect watching sceneDescription
     } catch (error) {
       handleError(error, "Failed to initialize game narration");
     } finally {
@@ -141,23 +140,32 @@ export default function DualDreadPage() {
     }
   }, [handleError]);
 
-  useEffect(() => {
-    initializeGame();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Initialize game on mount
-
   // Effect to generate image when scene description changes and game is active
   useEffect(() => {
-    if (gameState.sceneDescription && !gameState.gameOver && !loading) {
+    if (gameStarted && gameState.sceneDescription && !gameState.gameOver && !loading) {
       handleGenerateSceneImage(gameState.sceneDescription);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState.sceneDescription, gameState.gameOver]); // handleGenerateSceneImage is memoized
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameState.sceneDescription, gameState.gameOver, gameStarted]); // handleGenerateSceneImage is memoized
+
+
+  const handleStartGame = () => {
+    setGameStarted(true);
+    initializeGame();
+  };
+
+  const handleOpenSettings = () => {
+    toast({
+      title: "Settings",
+      description: "Game configuration options will be available here soon!",
+      duration: 3000,
+    });
+  };
 
   const handlePlayerChoice = async (playerChoice: string) => {
     if (gameState.gameOver || !gameState.isPlayerTurn) return;
 
-    setLoading(true); // For game logic
+    setLoading(true);
     setGameState(prev => ({
       ...prev,
       userSelectedChoice: playerChoice,
@@ -197,7 +205,7 @@ export default function DualDreadPage() {
       setGameState(prev => ({
         ...prev,
         narration: narrationResponse.narration,
-        sceneDescription: narrationResponse.sceneDescription, // This will trigger image generation via useEffect
+        sceneDescription: narrationResponse.sceneDescription,
         challenge: narrationResponse.challenge,
         availableChoices: newGameOver ? [] : getDynamicChoices(narrationResponse.sceneDescription, narrationResponse.challenge, prev.turnCount),
         isPlayerTurn: !newGameOver,
@@ -222,16 +230,16 @@ export default function DualDreadPage() {
         userSelectedChoice: null, 
       }));
     } finally {
-      setLoading(false); // For game logic
+      setLoading(false);
     }
   };
 
   const handleRestartGame = () => {
-    setGameState(initialGameState);
+    setGameState(prev => ({...initialGameState, turnCount: 0})); // Reset to initial state, but keep gameStarted true
     setSceneImageUrl(null);
     setImageError(null);
     setImageLoading(false);
-    initializeGame();
+    initializeGame(); // Re-initialize game content
   };
   
   const handleGeminiStuck = () => {
@@ -243,6 +251,9 @@ export default function DualDreadPage() {
     });
   };
 
+  if (!gameStarted) {
+    return <StartMenu onStartGame={handleStartGame} onOpenSettings={handleOpenSettings} />;
+  }
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-6 md:p-8 bg-gradient-to-br from-background to-secondary/50 relative">
@@ -252,7 +263,7 @@ export default function DualDreadPage() {
       </header>
 
       <main className="w-full max-w-3xl space-y-6">
-        {loading && !gameState.narration && ( // Initial game loading spinner
+        {loading && !gameState.narration && gameStarted && ( // Initial game loading spinner, only if game has started
           <div className="flex flex-col items-center justify-center h-64">
             <LoadingSpinner size={64} message="Awakening the horrors..." />
           </div>
@@ -294,11 +305,11 @@ export default function DualDreadPage() {
           <PlayerInputArea
             choices={gameState.availableChoices}
             onChoiceSelect={handlePlayerChoice}
-            disabled={loading || !gameState.isPlayerTurn || imageLoading} // Also disable input if image is loading
+            disabled={loading || !gameState.isPlayerTurn || imageLoading}
           />
         )}
 
-        {loading && gameState.isPlayerTurn && !!gameState.userSelectedChoice && ( // This is for Gemini's turn loading
+        {loading && gameState.isPlayerTurn && !!gameState.userSelectedChoice && (
           <div className="flex justify-center py-4">
             <LoadingSpinner message="Awaiting Gemini's counsel..." />
           </div>
@@ -308,7 +319,7 @@ export default function DualDreadPage() {
           <div className="text-center p-6 bg-card/80 backdrop-blur-sm rounded-lg shadow-xl">
             <h2 className="font-horror text-4xl text-destructive mb-4">Game Over</h2>
             <p className="text-muted-foreground mb-6">{gameState.narration || "The darkness consumes all."}</p>
-            <Button onClick={handleRestartGame} variant="default" size="lg"> {/* Changed variant to default from primary for better theme fit*/}
+            <Button onClick={handleRestartGame} variant="default" size="lg">
               <RotateCcw className="mr-2 h-5 w-5" /> Try Again?
             </Button>
           </div>
@@ -333,9 +344,7 @@ export default function DualDreadPage() {
           Dual Dread &copy; {new Date().getFullYear()}. All rights reserved.
         </p>
       </footer>
-       <div className="absolute top-4 right-4">
-         <Image src="https://placehold.co/100x50.png?text=Logo" alt="Dual Dread Logo" width={100} height={50} data-ai-hint="horror logo" className="opacity-70" />
-       </div>
+      {/* Removed the top-right logo Image component */}
     </div>
   );
 }
