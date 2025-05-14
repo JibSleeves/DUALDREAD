@@ -15,12 +15,13 @@ import { LoadingSpinner } from '@/components/game/LoadingSpinner';
 import { SceneVisualization } from '@/components/game/SceneVisualization';
 import { StartMenu } from '@/components/menu/StartMenu';
 import { PlayerHealthDisplay } from '@/components/game/PlayerHealthDisplay';
-import { AlertCircle, RotateCcw, HelpCircleIcon, SaveIcon } from 'lucide-react';
+import { InventoryDisplay } from '@/components/game/InventoryDisplay'; // New Import
+import { AlertCircle, RotateCcw, SaveIcon } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 
 const MAX_HEALTH = 2;
+const SAVE_GAME_KEY = 'dualDreadSaveData_v3'; // Increment version for new state structure
 
-// Define a more structured game state
 interface GameState {
   narration: string;
   sceneDescription: string;
@@ -35,12 +36,14 @@ interface GameState {
   turnCount: number;
   playerHealth: number;
   geminiHealth: number;
-  // Removed geminiHint and geminiIsStuck as Gemini is now an active participant
+  inventory: string[]; // New: Player inventory
 }
+
+const FIXED_STARTING_SCENE = "You find yourselves standing before an old, weathered wooden fence gate. Beyond it, a barely visible path disappears into the dark, foreboding woods. It's the middle of the night, the air is cold, and you realize you are utterly lost.";
 
 const initialGameState: GameState = {
   narration: "",
-  sceneDescription: "The air is thick with an unknown dread...",
+  sceneDescription: FIXED_STARTING_SCENE,
   challenge: "",
   availableChoices: [],
   userSelectedChoice: null,
@@ -52,6 +55,7 @@ const initialGameState: GameState = {
   turnCount: 0,
   playerHealth: MAX_HEALTH,
   geminiHealth: MAX_HEALTH,
+  inventory: [],
 };
 
 const STATIC_CHOICES_POOL = [
@@ -60,52 +64,55 @@ const STATIC_CHOICES_POOL = [
   "Communicate with your companion about the situation.",
   "Listen carefully for any sounds or clues.",
   "Search for any useful items nearby.",
-  "Examine the most unsettling feature of the room.",
-  "Check for escape routes.",
-  "Prepare a defensive position.",
-  "Call out to see if anyone else is there."
+  "Examine the most unsettling feature of the room/area.",
+  "Check for escape routes or hidden paths.",
+  "Prepare a defensive position or look for shelter.",
+  "Call out to see if anyone else is there (risky).",
+  "Attempt to use an item from your inventory (if applicable).",
+  "Focus on deciphering any strange symbols or writings.",
+  "Try to remember how you got here."
 ];
 
-const PREDEFINED_INITIAL_SCENARIOS: Array<{ scene: string; initialChallenge: string; firstNarration: string }> = [
+
+const PREDEFINED_INITIAL_FLAVORS: Array<{
+  initialChallenge: string;
+  firstNarration: string;
+  initialUserChoice: string;
+  initialGeminiChoice: string;
+}> = [
   {
-    scene: "You and your AI companion awaken strapped to cold, metallic tables in a blood-splattered operating room. The acrid smell of chemicals and decay fills your nostrils. A single, bare bulb buzzes erratically overhead.",
-    initialChallenge: "Find a way to free yourselves before whoever, or whatever, did this returns.",
-    firstNarration: "Panic sets in as the grim reality of your situation becomes clear. The room is a grotesque parody of medical science."
+    initialChallenge: "The gate is slightly ajar. Decide whether to push through into the oppressive darkness of the woods or examine the gate and its surroundings more closely.",
+    firstNarration: "A gust of wind rustles the leaves in the unseen canopy above, sounding like hushed whispers. The fence gate groans softly. The path beyond is an inky void.",
+    initialUserChoice: "Let's check the gate first, see if there are any markings or clues around it.",
+    initialGeminiChoice: "My sensors detect faint, unidentifiable organic traces near the path. Proceeding into the woods seems ill-advised without more information."
   },
   {
-    scene: "A disorienting jolt, and you find yourselves in the cramped, musty confines of a coffin, buried alive. Your AI companion's voice, though digital, sounds strained. Dirt trickles in from the lid above.",
-    initialChallenge: "Escape the suffocating darkness before your air runs out.",
-    firstNarration: "The oppressive darkness and the weight of the earth above press down on you. Claustrophobia is an immediate, unwelcome guest."
+    initialChallenge: "An unnatural silence hangs in the air, broken only by your own breathing. The woods feel ancient and menacing. What's your first move: try to follow the path, or scout the treeline near the gate?",
+    firstNarration: "The moonlight barely pierces the dense foliage, casting long, dancing shadows that play tricks on your eyes. Every snap of a twig underfoot could be a sign of danger.",
+    initialUserChoice: "I'll scout along the treeline near the gate. Maybe there's something less obvious than the main path.",
+    initialGeminiChoice: "I will scan the visible portion of the path for immediate hazards. Caution is paramount."
   },
   {
-    scene: "The world materializes around you as a derelict, fog-shrouded Victorian manor. Skeletal trees claw at the sky. Your AI companion shivers, or its digital equivalent. An unseen presence watches from the darkened windows.",
-    initialChallenge: "Seek shelter and uncover the manor's dark secrets, or flee into the treacherous fog.",
-    firstNarration: "A chilling wind whips through the decaying grandeur of the estate. Every shadow seems to writhe with untold horrors."
-  },
-  {
-    scene: "You awaken on a rickety raft adrift on an oily, black ocean under a blood-red moon. Strange, bioluminescent creatures pulse in the abyssal depths below. Your AI companion reports critical system errors from saltwater corrosion.",
-    initialChallenge: "Navigate the treacherous waters and find land, all while avoiding the horrors beneath.",
-    firstNarration: "The endless, unnatural ocean stretches in all directions. The silence is broken only by the lapping of waves and the unsettling clicks from below."
+    initialChallenge: "A barely audible, rhythmic thumping emanates from deep within the woods. Do you investigate the sound, or try to find a different direction away from it?",
+    firstNarration: "The old wooden fence seems to mark a boundary between the known and the deeply unknown. The thumping sound is unsettlingly organic, like a giant heartbeat.",
+    initialUserChoice: "That thumping is unnerving. Let's try to move away from it, perhaps find a different way around this fence.",
+    initialGeminiChoice: "The sound's frequency is too low for most known fauna. Analyzing its origin could be crucial, but also dangerous."
   }
 ];
 
 
 function getDynamicChoices(sceneDescription: string, challenge: string, turnCount: number): string[] {
-  // Generate a more varied set of choices
   const uniqueChoices = new Set<string>();
-  const basePool = [...STATIC_CHOICES_POOL]; // Create a mutable copy
-
-  // Attempt to add more variety, potentially by shuffling or picking more randomly
+  const basePool = [...STATIC_CHOICES_POOL]; 
   for (let i = basePool.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [basePool[i], basePool[j]] = [basePool[j], basePool[i]]; // Shuffle
+    [basePool[i], basePool[j]] = [basePool[j], basePool[i]];
   }
   
   while(uniqueChoices.size < 3 && basePool.length > 0) {
     const choiceIndex = Math.floor(Math.random() * basePool.length);
     uniqueChoices.add(basePool.splice(choiceIndex, 1)[0]);
   }
-  // Fallback if not enough unique choices are generated
   if (uniqueChoices.size < 3) {
     STATIC_CHOICES_POOL.slice(0, 3 - uniqueChoices.size).forEach(c => uniqueChoices.add(c));
   }
@@ -113,7 +120,6 @@ function getDynamicChoices(sceneDescription: string, challenge: string, turnCoun
   return Array.from(uniqueChoices);
 }
 
-const SAVE_GAME_KEY = 'dualDreadSaveData_v2'; // Increment version if state structure changes significantly
 
 export default function DualDreadPage() {
   const [gameStarted, setGameStarted] = useState(false);
@@ -147,12 +153,15 @@ export default function DualDreadPage() {
     setImageLoading(false);
   }, [toast]);
 
-  const handleGenerateSceneImage = useCallback(async (currentSceneDescription: string) => {
+  const handleGenerateSceneImage = useCallback(async (currentSceneDescription: string, currentTurnCount: number) => {
     if (!currentSceneDescription) return;
     setImageLoading(true);
     setImageError(null);
     try {
-      const imageInput: GenerateSceneImageInput = { sceneDescription: currentSceneDescription };
+      const imageInput: GenerateSceneImageInput = { 
+        sceneDescription: currentSceneDescription,
+        turnCount: currentTurnCount 
+      };
       const imageResponse = await generateSceneImage(imageInput);
       setSceneImageUrl(imageResponse.imageDataUri);
     } catch (error) {
@@ -166,36 +175,40 @@ export default function DualDreadPage() {
 
   const initializeNewGame = useCallback(async () => {
     setLoading(true);
-    setLoadingMessage("Awakening the horrors...");
+    setLoadingMessage("The familiar dread washes over you...");
     setGameState(initialGameState); 
     setSceneImageUrl(null);
     setImageError(null);
 
-    const randomScenario = PREDEFINED_INITIAL_SCENARIOS[Math.floor(Math.random() * PREDEFINED_INITIAL_SCENARIOS.length)];
+    const randomFlavor = PREDEFINED_INITIAL_FLAVORS[Math.floor(Math.random() * PREDEFINED_INITIAL_FLAVORS.length)];
 
     try {
       const initialNarrationInput: NarrateAdventureInput = {
-        userChoice: "We've just appeared here, terrified and confused.",
-        geminiChoice: "My sensors are picking up unusual readings. This is not good.",
-        currentSceneDescription: randomScenario.scene,
+        userChoice: randomFlavor.initialUserChoice,
+        geminiChoice: randomFlavor.initialGeminiChoice,
+        currentSceneDescription: FIXED_STARTING_SCENE, // Always start here
         playerHealth: MAX_HEALTH,
         geminiHealth: MAX_HEALTH,
+        turnCount: 1, // First turn
+        currentInventory: [],
       };
       const response = await narrateAdventure(initialNarrationInput);
       
-      setGameState(prev => ({
+      const newGameState: GameState = {
         ...initialGameState,
-        narration: response.narration || randomScenario.firstNarration,
-        sceneDescription: response.sceneDescription || randomScenario.scene,
-        challenge: response.challenge || randomScenario.initialChallenge,
-        availableChoices: getDynamicChoices(response.sceneDescription || randomScenario.scene, response.challenge || randomScenario.initialChallenge, 0),
+        narration: response.narration || randomFlavor.firstNarration,
+        sceneDescription: response.sceneDescription || FIXED_STARTING_SCENE,
+        challenge: response.challenge || randomFlavor.initialChallenge,
+        availableChoices: getDynamicChoices(response.sceneDescription || FIXED_STARTING_SCENE, response.challenge || randomFlavor.initialChallenge, 1),
         playerHealth: response.updatedPlayerHealth,
         geminiHealth: response.updatedGeminiHealth,
         isPlayerTurn: !response.isGameOver,
         gameOver: response.isGameOver,
         turnCount: 1,
+        inventory: response.newItemFound ? [response.newItemFound] : [],
         errorMessage: null,
-      }));
+      };
+      setGameState(newGameState);
 
       if (response.isGameOver) {
          toast({
@@ -209,13 +222,13 @@ export default function DualDreadPage() {
     } catch (error) {
       handleError(error, "Failed to initialize new game narration");
        setGameState(prev => ({
-        ...initialGameState,
-        narration: randomScenario.firstNarration,
-        sceneDescription: randomScenario.scene,
-        challenge: randomScenario.initialChallenge,
-        availableChoices: getDynamicChoices(randomScenario.scene, randomScenario.initialChallenge, 0),
-        isPlayerTurn: true,
-        turnCount: 1,
+        ...initialGameState, // Reset to truly initial state on error
+        sceneDescription: FIXED_STARTING_SCENE,
+        narration: randomFlavor.firstNarration, // Use flavor narration as fallback
+        challenge: randomFlavor.initialChallenge, // Use flavor challenge
+        availableChoices: getDynamicChoices(FIXED_STARTING_SCENE, randomFlavor.initialChallenge, 0),
+        isPlayerTurn: true, // Ensure player can act
+        turnCount: 1, // Still count as turn 1 attempt
       }));
     } finally {
       setLoading(false);
@@ -225,10 +238,11 @@ export default function DualDreadPage() {
 
   useEffect(() => {
     if (gameStarted && gameState.sceneDescription && !gameState.gameOver && !loading) {
-      handleGenerateSceneImage(gameState.sceneDescription);
+      // Pass turnCount to image generation
+      handleGenerateSceneImage(gameState.sceneDescription, gameState.turnCount);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState.sceneDescription, gameState.gameOver, gameStarted]);
+  }, [gameState.sceneDescription, gameState.turnCount, gameState.gameOver, gameStarted]);
 
 
   const handleStartNewGame = () => {
@@ -245,8 +259,12 @@ export default function DualDreadPage() {
   };
 
   const saveGame = () => {
-    if (gameState.gameOver) {
+    if (gameState.gameOver && gameState.turnCount > 0) { // Allow saving if game hasn't even started properly.
       toast({ title: "Cannot Save", description: "The story has concluded.", variant: "destructive" });
+      return;
+    }
+    if (gameState.turnCount === 0 && !gameState.narration) {
+      toast({ title: "Cannot Save", description: "Start a game first.", variant: "default" });
       return;
     }
     try {
@@ -269,25 +287,26 @@ export default function DualDreadPage() {
       const savedDataString = localStorage.getItem(SAVE_GAME_KEY);
       if (savedDataString) {
         const savedData = JSON.parse(savedDataString);
-        // Ensure health is initialized if loading older save data
-        const loadedGameState = {
-          ...initialGameState, // Start with defaults
-          ...savedData.gameState, // Override with saved data
+        
+        const loadedGameState: GameState = {
+          ...initialGameState, 
+          ...savedData.gameState, 
           playerHealth: savedData.gameState.playerHealth !== undefined ? savedData.gameState.playerHealth : MAX_HEALTH,
           geminiHealth: savedData.gameState.geminiHealth !== undefined ? savedData.gameState.geminiHealth : MAX_HEALTH,
+          inventory: savedData.gameState.inventory || [], // Ensure inventory is loaded
         };
 
         setGameState(loadedGameState);
         setSceneImageUrl(savedData.sceneImageUrl || null);
         setGameStarted(true);
         setImageError(null);
-        setImageLoading(false);
+        setImageLoading(false); // Ensure this is reset
         toast({ title: "Game Loaded", description: "The nightmare continues..." });
 
-        if (!loadedGameState.gameOver && loadedGameState.availableChoices.length === 0) {
-            setGameState(prev => ({
+        if (!loadedGameState.gameOver && loadedGameState.availableChoices.length === 0 && loadedGameState.turnCount > 0) {
+             setGameState(prev => ({
                 ...prev,
-                availableChoices: getDynamicChoices(prev.sceneDescription, prev.challenge, prev.turnCount-1)
+                availableChoices: getDynamicChoices(prev.sceneDescription, prev.challenge, prev.turnCount)
             }));
         }
       } else {
@@ -325,7 +344,7 @@ export default function DualDreadPage() {
       };
       const geminiResponse = await interpretChoices(interpretInput);
       
-      setLoadingMessage("The story unfolds...");
+      setLoadingMessage("The story warps and twists...");
       setGameState(prev => ({
         ...prev,
         geminiSelectedChoice: geminiResponse.chosenOption,
@@ -339,8 +358,20 @@ export default function DualDreadPage() {
         currentSceneDescription: gameState.sceneDescription, 
         playerHealth: gameState.playerHealth,
         geminiHealth: gameState.geminiHealth,
+        turnCount: gameState.turnCount + 1, // Increment turn count for the next state
+        currentInventory: gameState.inventory,
       };
       const narrationResponse = await narrateAdventure(narrateInput);
+
+      let updatedInventory = [...gameState.inventory];
+      if (narrationResponse.newItemFound) {
+        if (!updatedInventory.includes(narrationResponse.newItemFound)) { // Avoid duplicates simple check
+          updatedInventory.push(narrationResponse.newItemFound);
+        }
+      }
+      if (narrationResponse.itemUsed) {
+        updatedInventory = updatedInventory.filter(item => item !== narrationResponse.itemUsed);
+      }
 
       setGameState(prev => ({
         ...prev,
@@ -349,7 +380,8 @@ export default function DualDreadPage() {
         challenge: narrationResponse.challenge,
         playerHealth: narrationResponse.updatedPlayerHealth,
         geminiHealth: narrationResponse.updatedGeminiHealth,
-        availableChoices: narrationResponse.isGameOver ? [] : getDynamicChoices(narrationResponse.sceneDescription, narrationResponse.challenge, prev.turnCount),
+        inventory: updatedInventory,
+        availableChoices: narrationResponse.isGameOver ? [] : getDynamicChoices(narrationResponse.sceneDescription, narrationResponse.challenge, prev.turnCount + 1),
         isPlayerTurn: !narrationResponse.isGameOver,
         gameOver: narrationResponse.isGameOver,
         turnCount: prev.turnCount + 1,
@@ -357,9 +389,9 @@ export default function DualDreadPage() {
 
       if (narrationResponse.isGameOver) {
         toast({
-          title: narrationResponse.updatedPlayerHealth <= 0 && narrationResponse.updatedGeminiHealth <= 0 ? "Mutual Destruction" 
-               : narrationResponse.updatedPlayerHealth <= 0 ? "Your Demise" 
-               : "Gemini's Demise",
+          title: narrationResponse.updatedPlayerHealth <= 0 && narrationResponse.updatedGeminiHealth <= 0 ? "Mutual Annihilation" 
+               : narrationResponse.updatedPlayerHealth <= 0 ? "Your Light Extinguished" 
+               : "Gemini Deactivated",
           description: narrationResponse.narration || "The cycle of dread concludes... for now.",
           variant: "destructive",
           duration: 10000,
@@ -370,7 +402,7 @@ export default function DualDreadPage() {
       handleError(error, "Failed to process turn");
       setGameState(prev => ({
         ...prev,
-        isPlayerTurn: true, // Give player control back on error
+        isPlayerTurn: true, 
         userSelectedChoice: null, 
       }));
     } finally {
@@ -379,11 +411,10 @@ export default function DualDreadPage() {
   };
 
   const handleRestartGame = () => {
-    setGameStarted(true);
+    setGameStarted(true); // Ensure gameStarted is true for new game init
     initializeNewGame(); 
   };
   
-  // Removed handleGeminiStuck as Gemini is now an active participant.
 
   if (!gameStarted) {
     return <StartMenu onStartGame={handleStartNewGame} onOpenSettings={handleOpenSettings} onLoadGame={loadGame} saveFileExists={saveFileExists} />;
@@ -424,6 +455,8 @@ export default function DualDreadPage() {
           error={imageError}
           sceneDescription={gameState.sceneDescription}
         />
+
+        <InventoryDisplay items={gameState.inventory} />
         
         <SceneDisplay
           narration={gameState.narration}
@@ -436,7 +469,7 @@ export default function DualDreadPage() {
           <GeminiStatus
             geminiChoice={gameState.geminiSelectedChoice}
             geminiReasoning={gameState.geminiReasoning}
-            loading={loading && !gameState.isPlayerTurn && !!gameState.userSelectedChoice && !gameState.geminiSelectedChoice} // Loading only if Gemini hasn't made a choice yet
+            loading={loading && !gameState.isPlayerTurn && !!gameState.userSelectedChoice && !gameState.geminiSelectedChoice}
             isGeminiTurn={!gameState.isPlayerTurn && !!gameState.userSelectedChoice && !gameState.geminiSelectedChoice}
           />
         )}
@@ -475,7 +508,6 @@ export default function DualDreadPage() {
             <Button onClick={handleRestartGame} variant="outline" className="border-primary/50 hover:bg-primary/10">
               <RotateCcw className="mr-2 h-4 w-4" /> Restart Adventure
             </Button>
-            {/* Removed "I'm Stuck" button as Gemini is an active participant */}
           </div>
         )}
       </main>
