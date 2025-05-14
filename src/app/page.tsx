@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -6,12 +7,15 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { narrateAdventure, type NarrateAdventureInput, type NarrateAdventureOutput } from '@/ai/flows/narrate-adventure';
 import { interpretChoices, type InterpretChoicesInput, type InterpretChoicesOutput } from '@/ai/flows/interpret-choices';
+import { generateSceneImage, type GenerateSceneImageInput } from '@/ai/flows/generate-scene-image-flow';
 
 import { SceneDisplay } from '@/components/game/SceneDisplay';
 import { PlayerInputArea } from '@/components/game/PlayerInputArea';
 import { GeminiStatus } from '@/components/game/GeminiStatus';
 import { LoadingSpinner } from '@/components/game/LoadingSpinner';
+import { SceneVisualization } from '@/components/game/SceneVisualization';
 import { AlertCircle, RotateCcw, HelpCircleIcon } from 'lucide-react';
+import { AnimatePresence } from 'framer-motion';
 
 // Define a more structured game state
 interface GameState {
@@ -56,7 +60,6 @@ const STATIC_CHOICES_POOL = [
 ];
 
 function getDynamicChoices(sceneDescription: string, challenge: string, turnCount: number): string[] {
-  // Simple example: cycle through choices, could be made more sophisticated
   const baseIndex = turnCount * 3;
   return [
     STATIC_CHOICES_POOL[(baseIndex) % STATIC_CHOICES_POOL.length],
@@ -68,8 +71,12 @@ function getDynamicChoices(sceneDescription: string, challenge: string, turnCoun
 
 export default function DualDreadPage() {
   const [gameState, setGameState] = useState<GameState>(initialGameState);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true); // Main game logic loading
   const { toast } = useToast();
+
+  const [sceneImageUrl, setSceneImageUrl] = useState<string | null>(null);
+  const [imageLoading, setImageLoading] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
 
   const handleError = useCallback((error: any, message: string) => {
     console.error(message, error);
@@ -81,11 +88,34 @@ export default function DualDreadPage() {
       variant: "destructive",
     });
     setLoading(false);
+    setImageLoading(false); // Ensure image loading also stops on general error
   }, [toast]);
+
+  const handleGenerateSceneImage = useCallback(async (currentSceneDescription: string) => {
+    if (!currentSceneDescription) return;
+    setImageLoading(true);
+    setImageError(null);
+    try {
+      const imageInput: GenerateSceneImageInput = { sceneDescription: currentSceneDescription };
+      const imageResponse = await generateSceneImage(imageInput);
+      setSceneImageUrl(imageResponse.imageDataUri);
+    } catch (error) {
+      console.error("Failed to generate scene image:", error);
+      const errMessage = error instanceof Error ? error.message : String(error);
+      setImageError(`Image generation error: ${errMessage.slice(0,150)}`); // Truncate long messages
+      // setSceneImageUrl(null); // Optionally clear previous image on error, or keep it
+    } finally {
+      setImageLoading(false);
+    }
+  }, []);
+
 
   const initializeGame = useCallback(async () => {
     setLoading(true);
     setGameState(prev => ({ ...prev, errorMessage: null }));
+    setSceneImageUrl(null); // Clear previous image
+    setImageError(null);
+
     try {
       const initialNarrationInput: NarrateAdventureInput = {
         userChoice: "We've awakened in this dreadful place.",
@@ -97,12 +127,13 @@ export default function DualDreadPage() {
       setGameState(prev => ({
         ...prev,
         narration: response.narration,
-        sceneDescription: response.sceneDescription, // AI might update this
+        sceneDescription: response.sceneDescription,
         challenge: response.challenge,
         availableChoices: getDynamicChoices(response.sceneDescription, response.challenge, prev.turnCount),
         isPlayerTurn: true,
         turnCount: prev.turnCount + 1,
       }));
+      // Image generation will be triggered by useEffect watching sceneDescription
     } catch (error) {
       handleError(error, "Failed to initialize game narration");
     } finally {
@@ -115,25 +146,32 @@ export default function DualDreadPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Initialize game on mount
 
+  // Effect to generate image when scene description changes and game is active
+  useEffect(() => {
+    if (gameState.sceneDescription && !gameState.gameOver && !loading) {
+      handleGenerateSceneImage(gameState.sceneDescription);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameState.sceneDescription, gameState.gameOver]); // handleGenerateSceneImage is memoized
+
   const handlePlayerChoice = async (playerChoice: string) => {
     if (gameState.gameOver || !gameState.isPlayerTurn) return;
 
-    setLoading(true);
+    setLoading(true); // For game logic
     setGameState(prev => ({
       ...prev,
       userSelectedChoice: playerChoice,
       isPlayerTurn: false,
       errorMessage: null,
-      geminiSelectedChoice: null, // Clear previous Gemini choice
+      geminiSelectedChoice: null, 
       geminiReasoning: null,
       geminiHint: null,
     }));
 
     try {
-      // Gemini interprets and makes its choice
       const interpretInput: InterpretChoicesInput = {
         sceneDescription: gameState.sceneDescription,
-        playerChoices: gameState.availableChoices, // Gemini chooses from the same set of options for now
+        playerChoices: gameState.availableChoices, 
         geminiStuck: gameState.geminiIsStuck,
       };
       const geminiResponse = await interpretChoices(interpretInput);
@@ -143,25 +181,23 @@ export default function DualDreadPage() {
         geminiSelectedChoice: geminiResponse.chosenOption,
         geminiReasoning: geminiResponse.reasoning,
         geminiHint: geminiResponse.hint || null,
-        geminiIsStuck: false, // Reset stuck status after an attempt
+        geminiIsStuck: false, 
       }));
 
-      // Proceed to next narration step
       const narrateInput: NarrateAdventureInput = {
         userChoice: playerChoice,
         geminiChoice: geminiResponse.chosenOption,
-        currentSceneDescription: gameState.sceneDescription, // Scene before this turn's actions
+        currentSceneDescription: gameState.sceneDescription, 
       };
       const narrationResponse = await narrateAdventure(narrateInput);
 
-      // Check for game over conditions (simplified)
       const newGameOver = narrationResponse.narration.toLowerCase().includes("game over") ||
                           narrationResponse.challenge.toLowerCase().includes("you have perished");
 
       setGameState(prev => ({
         ...prev,
         narration: narrationResponse.narration,
-        sceneDescription: narrationResponse.sceneDescription,
+        sceneDescription: narrationResponse.sceneDescription, // This will trigger image generation via useEffect
         challenge: narrationResponse.challenge,
         availableChoices: newGameOver ? [] : getDynamicChoices(narrationResponse.sceneDescription, narrationResponse.challenge, prev.turnCount),
         isPlayerTurn: !newGameOver,
@@ -180,19 +216,21 @@ export default function DualDreadPage() {
 
     } catch (error) {
       handleError(error, "Failed to process turn");
-      // Rollback player turn if Gemini or narration fails
       setGameState(prev => ({
         ...prev,
         isPlayerTurn: true,
-        userSelectedChoice: null, // Clear selection if error
+        userSelectedChoice: null, 
       }));
     } finally {
-      setLoading(false);
+      setLoading(false); // For game logic
     }
   };
 
   const handleRestartGame = () => {
     setGameState(initialGameState);
+    setSceneImageUrl(null);
+    setImageError(null);
+    setImageLoading(false);
     initializeGame();
   };
   
@@ -203,7 +241,6 @@ export default function DualDreadPage() {
       title: "Hint Requested",
       description: "Gemini will try to provide a hint in its next reasoning.",
     });
-    // Player still needs to make a choice to trigger Gemini's response
   };
 
 
@@ -215,7 +252,7 @@ export default function DualDreadPage() {
       </header>
 
       <main className="w-full max-w-3xl space-y-6">
-        {loading && !gameState.narration && (
+        {loading && !gameState.narration && ( // Initial game loading spinner
           <div className="flex flex-col items-center justify-center h-64">
             <LoadingSpinner size={64} message="Awakening the horrors..." />
           </div>
@@ -227,6 +264,13 @@ export default function DualDreadPage() {
             <p>{gameState.errorMessage}</p>
           </div>
         )}
+        
+        <SceneVisualization
+          imageUrl={sceneImageUrl}
+          isLoading={imageLoading}
+          error={imageError}
+          sceneDescription={gameState.sceneDescription}
+        />
         
         <SceneDisplay
           narration={gameState.narration}
@@ -250,11 +294,11 @@ export default function DualDreadPage() {
           <PlayerInputArea
             choices={gameState.availableChoices}
             onChoiceSelect={handlePlayerChoice}
-            disabled={loading || !gameState.isPlayerTurn}
+            disabled={loading || !gameState.isPlayerTurn || imageLoading} // Also disable input if image is loading
           />
         )}
 
-        {loading && gameState.isPlayerTurn && !!gameState.userSelectedChoice && (
+        {loading && gameState.isPlayerTurn && !!gameState.userSelectedChoice && ( // This is for Gemini's turn loading
           <div className="flex justify-center py-4">
             <LoadingSpinner message="Awaiting Gemini's counsel..." />
           </div>
@@ -264,7 +308,7 @@ export default function DualDreadPage() {
           <div className="text-center p-6 bg-card/80 backdrop-blur-sm rounded-lg shadow-xl">
             <h2 className="font-horror text-4xl text-destructive mb-4">Game Over</h2>
             <p className="text-muted-foreground mb-6">{gameState.narration || "The darkness consumes all."}</p>
-            <Button onClick={handleRestartGame} variant="primary" size="lg">
+            <Button onClick={handleRestartGame} variant="default" size="lg"> {/* Changed variant to default from primary for better theme fit*/}
               <RotateCcw className="mr-2 h-5 w-5" /> Try Again?
             </Button>
           </div>
@@ -276,7 +320,7 @@ export default function DualDreadPage() {
               <RotateCcw className="mr-2 h-4 w-4" /> Restart Adventure
             </Button>
             {gameState.isPlayerTurn && !loading && (
-              <Button onClick={handleGeminiStuck} variant="outline" className="border-accent/50 hover:bg-accent/10 text-accent">
+              <Button onClick={handleGeminiStuck} variant="outline" className="border-accent/50 hover:bg-accent/10 text-accent" disabled={imageLoading}>
                  <HelpCircleIcon className="mr-2 h-4 w-4" /> I'm Stuck (Hint for Gemini)
               </Button>
             )}
@@ -295,6 +339,3 @@ export default function DualDreadPage() {
     </div>
   );
 }
-
-// AnimatePresence for GeminiStatus component
-import { AnimatePresence } from 'framer-motion';
