@@ -2,20 +2,19 @@
 "use client";
 
 import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Loader2, Bot, Lightbulb } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Loader2, Bot } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface GeminiStatusProps {
   geminiChoice?: string | null;
   geminiReasoning?: string | null;
-  geminiHint?: string | null;
-  loading: boolean;
+  loading: boolean; // True if Gemini is processing its choice
+  isGeminiTurn?: boolean; // Specifically for Gemini's turn loading message
 }
 
-export function GeminiStatus({ geminiChoice, geminiReasoning, geminiHint, loading }: GeminiStatusProps) {
-  if (loading && !geminiChoice && !geminiReasoning && !geminiHint) {
+export function GeminiStatus({ geminiChoice, geminiReasoning, loading, isGeminiTurn }: GeminiStatusProps) {
+  if (loading && isGeminiTurn) {
     return (
       <Card className="bg-card/70 backdrop-blur-sm shadow-md border-secondary/30 mt-6">
         <CardContent className="p-6 flex items-center justify-center text-secondary-foreground">
@@ -25,10 +24,29 @@ export function GeminiStatus({ geminiChoice, geminiReasoning, geminiHint, loadin
       </Card>
     );
   }
+  
+  // This condition handles loading for narration AFTER Gemini has made its choice
+  if (loading && !isGeminiTurn && !geminiChoice && !geminiReasoning) {
+     return (
+      <Card className="bg-card/70 backdrop-blur-sm shadow-md border-secondary/30 mt-6">
+        <CardContent className="p-6 flex items-center justify-center text-secondary-foreground">
+          <Loader2 className="mr-2 h-6 w-6 animate-spin text-accent" />
+          <span className="italic">The story unfolds...</span>
+        </CardContent>
+      </Card>
+    );
+  }
 
-  if (!geminiChoice && !geminiReasoning && !geminiHint) {
+
+  if (!geminiChoice && !geminiReasoning && !loading) {
     return null; // Nothing to display if not loading and no info
   }
+  
+  // Only show Gemini's choice and reasoning if they exist
+  if (!geminiChoice && !geminiReasoning) {
+    return null;
+  }
+
 
   return (
     <AnimatePresence>
@@ -56,15 +74,7 @@ export function GeminiStatus({ geminiChoice, geminiReasoning, geminiHint, loadin
                 <strong className="text-accent not-italic">Reasoning:</strong> "{geminiReasoning}"
               </p>
             )}
-            {geminiHint && (
-              <Alert variant="default" className="bg-accent/10 border-accent/50 text-accent-foreground mt-3">
-                <Lightbulb className="h-5 w-5 text-accent" />
-                <AlertTitle className="font-horror text-accent">A Glimmer of Insight</AlertTitle>
-                <AlertDescription>
-                  {geminiHint}
-                </AlertDescription>
-              </Alert>
-            )}
+            {/* Removed hint display as it's no longer part of Gemini's direct output */}
           </CardContent>
         </Card>
       </motion.div>

@@ -14,8 +14,11 @@ import { GeminiStatus } from '@/components/game/GeminiStatus';
 import { LoadingSpinner } from '@/components/game/LoadingSpinner';
 import { SceneVisualization } from '@/components/game/SceneVisualization';
 import { StartMenu } from '@/components/menu/StartMenu';
+import { PlayerHealthDisplay } from '@/components/game/PlayerHealthDisplay';
 import { AlertCircle, RotateCcw, HelpCircleIcon, SaveIcon } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
+
+const MAX_HEALTH = 2;
 
 // Define a more structured game state
 interface GameState {
@@ -26,28 +29,29 @@ interface GameState {
   userSelectedChoice: string | null;
   geminiSelectedChoice: string | null;
   geminiReasoning: string | null;
-  geminiHint: string | null;
-  geminiIsStuck: boolean;
   isPlayerTurn: boolean;
   gameOver: boolean;
   errorMessage: string | null;
   turnCount: number;
+  playerHealth: number;
+  geminiHealth: number;
+  // Removed geminiHint and geminiIsStuck as Gemini is now an active participant
 }
 
 const initialGameState: GameState = {
   narration: "",
-  sceneDescription: "The air is thick with an unknown dread...", // Generic starting point
+  sceneDescription: "The air is thick with an unknown dread...",
   challenge: "",
   availableChoices: [],
   userSelectedChoice: null,
   geminiSelectedChoice: null,
   geminiReasoning: null,
-  geminiHint: null,
-  geminiIsStuck: false,
   isPlayerTurn: false,
   gameOver: false,
   errorMessage: null,
   turnCount: 0,
+  playerHealth: MAX_HEALTH,
+  geminiHealth: MAX_HEALTH,
 };
 
 const STATIC_CHOICES_POOL = [
@@ -56,7 +60,10 @@ const STATIC_CHOICES_POOL = [
   "Communicate with your companion about the situation.",
   "Listen carefully for any sounds or clues.",
   "Search for any useful items nearby.",
-  "Examine the most unsettling feature of the room."
+  "Examine the most unsettling feature of the room.",
+  "Check for escape routes.",
+  "Prepare a defensive position.",
+  "Call out to see if anyone else is there."
 ];
 
 const PREDEFINED_INITIAL_SCENARIOS: Array<{ scene: string; initialChallenge: string; firstNarration: string }> = [
@@ -84,20 +91,35 @@ const PREDEFINED_INITIAL_SCENARIOS: Array<{ scene: string; initialChallenge: str
 
 
 function getDynamicChoices(sceneDescription: string, challenge: string, turnCount: number): string[] {
-  const baseIndex = turnCount * 3; // Ensure this doesn't go out of bounds for smaller pools
-  return [
-    STATIC_CHOICES_POOL[(baseIndex) % STATIC_CHOICES_POOL.length],
-    STATIC_CHOICES_POOL[(baseIndex + 1) % STATIC_CHOICES_POOL.length],
-    STATIC_CHOICES_POOL[(baseIndex + 2) % STATIC_CHOICES_POOL.length],
-  ];
+  // Generate a more varied set of choices
+  const uniqueChoices = new Set<string>();
+  const basePool = [...STATIC_CHOICES_POOL]; // Create a mutable copy
+
+  // Attempt to add more variety, potentially by shuffling or picking more randomly
+  for (let i = basePool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [basePool[i], basePool[j]] = [basePool[j], basePool[i]]; // Shuffle
+  }
+  
+  while(uniqueChoices.size < 3 && basePool.length > 0) {
+    const choiceIndex = Math.floor(Math.random() * basePool.length);
+    uniqueChoices.add(basePool.splice(choiceIndex, 1)[0]);
+  }
+  // Fallback if not enough unique choices are generated
+  if (uniqueChoices.size < 3) {
+    STATIC_CHOICES_POOL.slice(0, 3 - uniqueChoices.size).forEach(c => uniqueChoices.add(c));
+  }
+  
+  return Array.from(uniqueChoices);
 }
 
-const SAVE_GAME_KEY = 'dualDreadSaveData';
+const SAVE_GAME_KEY = 'dualDreadSaveData_v2'; // Increment version if state structure changes significantly
 
 export default function DualDreadPage() {
   const [gameStarted, setGameStarted] = useState(false);
   const [gameState, setGameState] = useState<GameState>(initialGameState);
   const [loading, setLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState("Loading...");
   const { toast } = useToast();
 
   const [sceneImageUrl, setSceneImageUrl] = useState<string | null>(null);
@@ -106,8 +128,7 @@ export default function DualDreadPage() {
   const [saveFileExists, setSaveFileExists] = useState(false);
 
   useEffect(() => {
-    // Check for save file on mount (client-side only)
-    if (localStorage.getItem(SAVE_GAME_KEY)) {
+    if (typeof window !== 'undefined' && localStorage.getItem(SAVE_GAME_KEY)) {
       setSaveFileExists(true);
     }
   }, []);
@@ -145,36 +166,48 @@ export default function DualDreadPage() {
 
   const initializeNewGame = useCallback(async () => {
     setLoading(true);
-    setGameState(initialGameState); // Reset to base initial state first
+    setLoadingMessage("Awakening the horrors...");
+    setGameState(initialGameState); 
     setSceneImageUrl(null);
     setImageError(null);
 
     const randomScenario = PREDEFINED_INITIAL_SCENARIOS[Math.floor(Math.random() * PREDEFINED_INITIAL_SCENARIOS.length)];
 
     try {
-      // Use narrateAdventure to get the first proper narration based on the random start.
-      // This makes the AI "aware" of the starting scenario.
       const initialNarrationInput: NarrateAdventureInput = {
-        userChoice: "We've just appeared here, terrified and confused.", // Player's initial implicit action
-        geminiChoice: "My sensors are picking up unusual readings. This is not good.", // Gemini's initial reaction
-        currentSceneDescription: randomScenario.scene, // Use the scene from the random scenario
+        userChoice: "We've just appeared here, terrified and confused.",
+        geminiChoice: "My sensors are picking up unusual readings. This is not good.",
+        currentSceneDescription: randomScenario.scene,
+        playerHealth: MAX_HEALTH,
+        geminiHealth: MAX_HEALTH,
       };
       const response = await narrateAdventure(initialNarrationInput);
       
       setGameState(prev => ({
-        ...initialGameState, // Ensure a clean slate
-        narration: response.narration || randomScenario.firstNarration, // Fallback to predefined first narration
+        ...initialGameState,
+        narration: response.narration || randomScenario.firstNarration,
         sceneDescription: response.sceneDescription || randomScenario.scene,
         challenge: response.challenge || randomScenario.initialChallenge,
         availableChoices: getDynamicChoices(response.sceneDescription || randomScenario.scene, response.challenge || randomScenario.initialChallenge, 0),
-        isPlayerTurn: true,
+        playerHealth: response.updatedPlayerHealth,
+        geminiHealth: response.updatedGeminiHealth,
+        isPlayerTurn: !response.isGameOver,
+        gameOver: response.isGameOver,
         turnCount: 1,
-        gameOver: false,
         errorMessage: null,
       }));
+
+      if (response.isGameOver) {
+         toast({
+          title: "Doomed From The Start",
+          description: response.narration || "The dread consumed you before you could even act.",
+          variant: "destructive",
+          duration: 10000,
+        });
+      }
+
     } catch (error) {
       handleError(error, "Failed to initialize new game narration");
-      // Fallback to a simpler setup if narration fails
        setGameState(prev => ({
         ...initialGameState,
         narration: randomScenario.firstNarration,
@@ -187,7 +220,7 @@ export default function DualDreadPage() {
     } finally {
       setLoading(false);
     }
-  }, [handleError]);
+  }, [handleError, toast]);
 
 
   useEffect(() => {
@@ -231,31 +264,37 @@ export default function DualDreadPage() {
 
   const loadGame = () => {
     setLoading(true);
+    setLoadingMessage("Reliving past dread...");
     try {
       const savedDataString = localStorage.getItem(SAVE_GAME_KEY);
       if (savedDataString) {
         const savedData = JSON.parse(savedDataString);
-        setGameState(savedData.gameState);
-        setSceneImageUrl(savedData.sceneImageUrl || null); // Handle potentially missing image URL
+        // Ensure health is initialized if loading older save data
+        const loadedGameState = {
+          ...initialGameState, // Start with defaults
+          ...savedData.gameState, // Override with saved data
+          playerHealth: savedData.gameState.playerHealth !== undefined ? savedData.gameState.playerHealth : MAX_HEALTH,
+          geminiHealth: savedData.gameState.geminiHealth !== undefined ? savedData.gameState.geminiHealth : MAX_HEALTH,
+        };
+
+        setGameState(loadedGameState);
+        setSceneImageUrl(savedData.sceneImageUrl || null);
         setGameStarted(true);
-        setImageError(null); // Reset image error on load
-        setImageLoading(false); // Reset image loading on load
+        setImageError(null);
+        setImageLoading(false);
         toast({ title: "Game Loaded", description: "The nightmare continues..." });
 
-        // Ensure choices are available if game is not over
-        if (!savedData.gameState.gameOver && savedData.gameState.availableChoices.length === 0) {
+        if (!loadedGameState.gameOver && loadedGameState.availableChoices.length === 0) {
             setGameState(prev => ({
                 ...prev,
                 availableChoices: getDynamicChoices(prev.sceneDescription, prev.challenge, prev.turnCount-1)
             }));
         }
-
       } else {
         toast({ title: "Load Failed", description: "No prior dread found to relive.", variant: "destructive" });
       }
     } catch (error) {
       handleError(error, "Failed to load game");
-      // If load fails, might be good to initialize a new game or go back to start menu
       setGameStarted(false); 
     } finally {
       setLoading(false);
@@ -267,6 +306,7 @@ export default function DualDreadPage() {
     if (gameState.gameOver || !gameState.isPlayerTurn) return;
 
     setLoading(true);
+    setLoadingMessage("Gemini is contemplating its move...");
     setGameState(prev => ({
       ...prev,
       userSelectedChoice: playerChoice,
@@ -274,50 +314,52 @@ export default function DualDreadPage() {
       errorMessage: null,
       geminiSelectedChoice: null, 
       geminiReasoning: null,
-      geminiHint: null,
     }));
 
     try {
+      // Gemini's Turn
       const interpretInput: InterpretChoicesInput = {
         sceneDescription: gameState.sceneDescription,
-        playerChoices: gameState.availableChoices, 
-        geminiStuck: gameState.geminiIsStuck,
+        availableChoices: gameState.availableChoices, 
+        currentGeminiHealth: gameState.geminiHealth,
       };
       const geminiResponse = await interpretChoices(interpretInput);
       
+      setLoadingMessage("The story unfolds...");
       setGameState(prev => ({
         ...prev,
         geminiSelectedChoice: geminiResponse.chosenOption,
         geminiReasoning: geminiResponse.reasoning,
-        geminiHint: geminiResponse.hint || null,
-        geminiIsStuck: false, 
       }));
 
+      // Narration based on both choices
       const narrateInput: NarrateAdventureInput = {
         userChoice: playerChoice,
         geminiChoice: geminiResponse.chosenOption,
         currentSceneDescription: gameState.sceneDescription, 
+        playerHealth: gameState.playerHealth,
+        geminiHealth: gameState.geminiHealth,
       };
       const narrationResponse = await narrateAdventure(narrateInput);
-
-      const newGameOver = narrationResponse.narration.toLowerCase().includes("game over") ||
-                          narrationResponse.challenge.toLowerCase().includes("you have perished") ||
-                          narrationResponse.sceneDescription.toLowerCase().includes("the end.");
 
       setGameState(prev => ({
         ...prev,
         narration: narrationResponse.narration,
         sceneDescription: narrationResponse.sceneDescription,
         challenge: narrationResponse.challenge,
-        availableChoices: newGameOver ? [] : getDynamicChoices(narrationResponse.sceneDescription, narrationResponse.challenge, prev.turnCount),
-        isPlayerTurn: !newGameOver,
-        gameOver: newGameOver,
+        playerHealth: narrationResponse.updatedPlayerHealth,
+        geminiHealth: narrationResponse.updatedGeminiHealth,
+        availableChoices: narrationResponse.isGameOver ? [] : getDynamicChoices(narrationResponse.sceneDescription, narrationResponse.challenge, prev.turnCount),
+        isPlayerTurn: !narrationResponse.isGameOver,
+        gameOver: narrationResponse.isGameOver,
         turnCount: prev.turnCount + 1,
       }));
 
-      if (newGameOver) {
+      if (narrationResponse.isGameOver) {
         toast({
-          title: "The End?",
+          title: narrationResponse.updatedPlayerHealth <= 0 && narrationResponse.updatedGeminiHealth <= 0 ? "Mutual Destruction" 
+               : narrationResponse.updatedPlayerHealth <= 0 ? "Your Demise" 
+               : "Gemini's Demise",
           description: narrationResponse.narration || "The cycle of dread concludes... for now.",
           variant: "destructive",
           duration: 10000,
@@ -328,7 +370,7 @@ export default function DualDreadPage() {
       handleError(error, "Failed to process turn");
       setGameState(prev => ({
         ...prev,
-        isPlayerTurn: true,
+        isPlayerTurn: true, // Give player control back on error
         userSelectedChoice: null, 
       }));
     } finally {
@@ -337,18 +379,11 @@ export default function DualDreadPage() {
   };
 
   const handleRestartGame = () => {
-    setGameStarted(true); // Keep game started, but re-initialize
+    setGameStarted(true);
     initializeNewGame(); 
   };
   
-  const handleGeminiStuck = () => {
-    if (gameState.gameOver || !gameState.isPlayerTurn) return;
-    setGameState(prev => ({ ...prev, geminiIsStuck: true }));
-    toast({
-      title: "Hint Requested",
-      description: "Gemini will try to provide a hint in its next reasoning.",
-    });
-  };
+  // Removed handleGeminiStuck as Gemini is now an active participant.
 
   if (!gameStarted) {
     return <StartMenu onStartGame={handleStartNewGame} onOpenSettings={handleOpenSettings} onLoadGame={loadGame} saveFileExists={saveFileExists} />;
@@ -356,7 +391,7 @@ export default function DualDreadPage() {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-6 md:p-8 bg-gradient-to-br from-background to-secondary/50 relative">
-      <header className="w-full max-w-3xl mb-8 text-center">
+      <header className="w-full max-w-3xl mb-6 text-center">
         <h1 className="font-horror text-5xl sm:text-6xl md:text-7xl text-primary animate-pulse">Dual Dread</h1>
         <p className="text-lg text-muted-foreground italic mt-2">A cooperative horror text adventure.</p>
       </header>
@@ -364,7 +399,7 @@ export default function DualDreadPage() {
       <main className="w-full max-w-3xl space-y-6">
         {loading && !gameState.narration && gameStarted && (
           <div className="flex flex-col items-center justify-center h-64">
-            <LoadingSpinner size={64} message="Awakening the horrors..." />
+            <LoadingSpinner size={64} message={loadingMessage} />
           </div>
         )}
 
@@ -375,6 +410,14 @@ export default function DualDreadPage() {
           </div>
         )}
         
+        <PlayerHealthDisplay 
+          playerName="You" 
+          playerHealth={gameState.playerHealth}
+          geminiName="Gemini"
+          geminiHealth={gameState.geminiHealth}
+          maxHealth={MAX_HEALTH}
+        />
+
         <SceneVisualization
           imageUrl={sceneImageUrl}
           isLoading={imageLoading}
@@ -389,12 +432,12 @@ export default function DualDreadPage() {
         />
 
         <AnimatePresence>
-        {(gameState.geminiSelectedChoice || gameState.geminiReasoning || gameState.geminiHint || (loading && !gameState.isPlayerTurn && gameState.userSelectedChoice)) && (
+        {(gameState.geminiSelectedChoice || gameState.geminiReasoning || (loading && !gameState.isPlayerTurn && gameState.userSelectedChoice)) && (
           <GeminiStatus
             geminiChoice={gameState.geminiSelectedChoice}
             geminiReasoning={gameState.geminiReasoning}
-            geminiHint={gameState.geminiHint}
-            loading={loading && !gameState.isPlayerTurn && !!gameState.userSelectedChoice}
+            loading={loading && !gameState.isPlayerTurn && !!gameState.userSelectedChoice && !gameState.geminiSelectedChoice} // Loading only if Gemini hasn't made a choice yet
+            isGeminiTurn={!gameState.isPlayerTurn && !!gameState.userSelectedChoice && !gameState.geminiSelectedChoice}
           />
         )}
         </AnimatePresence>
@@ -407,18 +450,12 @@ export default function DualDreadPage() {
             disabled={loading || !gameState.isPlayerTurn || imageLoading}
           />
         )}
-
-        {loading && gameState.isPlayerTurn && !!gameState.userSelectedChoice && ( // This is when player made a choice, waiting for AI.
+        
+        {loading && (
            <div className="flex justify-center py-4">
-             <LoadingSpinner message="The other side contemplates..." />
+             <LoadingSpinner message={loadingMessage} />
            </div>
         )}
-         {loading && !gameState.isPlayerTurn && !gameState.userSelectedChoice && ( // This is initial game load or AI has responded, now narrating
-           <div className="flex justify-center py-4">
-             <LoadingSpinner message="The story unfolds..." />
-           </div>
-        )}
-
         
         {gameState.gameOver && (
           <div className="text-center p-6 bg-card/80 backdrop-blur-sm rounded-lg shadow-xl">
@@ -438,11 +475,7 @@ export default function DualDreadPage() {
             <Button onClick={handleRestartGame} variant="outline" className="border-primary/50 hover:bg-primary/10">
               <RotateCcw className="mr-2 h-4 w-4" /> Restart Adventure
             </Button>
-            {gameState.isPlayerTurn && !loading && (
-              <Button onClick={handleGeminiStuck} variant="outline" className="border-accent/50 hover:bg-accent/10 text-accent" disabled={imageLoading || loading}>
-                 <HelpCircleIcon className="mr-2 h-4 w-4" /> I'm Stuck (Hint for Gemini)
-              </Button>
-            )}
+            {/* Removed "I'm Stuck" button as Gemini is an active participant */}
           </div>
         )}
       </main>
