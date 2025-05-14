@@ -1,3 +1,4 @@
+
 // src/components/game/SceneVisualization.tsx
 "use client";
 
@@ -17,7 +18,7 @@ interface SceneVisualizationProps {
 export function SceneVisualization({ imageUrl, isLoading, error, sceneDescription }: SceneVisualizationProps) {
   const getHintFromDescription = (desc?: string) => {
     if (!desc) return "horror scene";
-    const commonWords = ["dark", "eerie", "cellar", "forest", "monster", "shadow", "ruins", "abandoned", "creepy", "mysterious"];
+    const commonWords = ["dark", "eerie", "cellar", "forest", "monster", "shadow", "ruins", "abandoned", "creepy", "mysterious", "blood", "operating room", "coffin", "manor", "fog", "ocean", "metallic", "decay"];
     const words = desc.toLowerCase().split(/\s+/);
     const foundKeywords = words.filter(word => commonWords.includes(word.replace(/[.,]/g, '')));
     
@@ -68,18 +69,17 @@ export function SceneVisualization({ imageUrl, isLoading, error, sceneDescriptio
               </motion.div>
             )}
             
-            {/* This placeholder is always in the background to avoid layout shifts and provide a fallback visual */}
             <motion.div
               key="background_placeholder"
-              initial={{ opacity: 1 }} // Start visible
-              animate={{ opacity: (isLoading || error || imageUrl) ? 0.3 : 1 }} // Dim if other content is showing
+              initial={{ opacity: 1 }} 
+              animate={{ opacity: (isLoading || error || imageUrl) ? 0.3 : 1 }} 
               transition={{ duration: 0.5 }}
               className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground/50 z-0"
             >
               <ImageOff className="h-16 w-16 mb-2 opacity-30" />
               <p className="text-xs opacity-50">Awaiting visual data...</p>
               <Image
-                  src={`https://placehold.co/800x450.png`} // 16:9 aspect ratio
+                  src={`https://placehold.co/800x450.png`} 
                   alt="Placeholder visualization"
                   layout="fill"
                   objectFit="cover"
@@ -91,7 +91,7 @@ export function SceneVisualization({ imageUrl, isLoading, error, sceneDescriptio
 
             {!isLoading && !error && imageUrl && (
               <motion.div
-                key={imageUrl} // Use imageUrl as key to re-trigger animation on change
+                key={imageUrl} 
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0 }}
@@ -104,7 +104,7 @@ export function SceneVisualization({ imageUrl, isLoading, error, sceneDescriptio
                   layout="fill"
                   objectFit="cover"
                   className="transition-transform duration-700 ease-in-out group-hover:scale-105"
-                  priority={true} // Prioritize loading current scene image
+                  priority={true} 
                 />
               </motion.div>
             )}

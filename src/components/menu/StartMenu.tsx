@@ -3,15 +3,17 @@
 
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { Settings, PlayCircle } from 'lucide-react';
+import { Settings, PlayCircle, History } from 'lucide-react'; // Added History for Load Game
 import { motion } from 'framer-motion';
 
 interface StartMenuProps {
   onStartGame: () => void;
   onOpenSettings: () => void;
+  onLoadGame: () => void;
+  saveFileExists: boolean;
 }
 
-export function StartMenu({ onStartGame, onOpenSettings }: StartMenuProps) {
+export function StartMenu({ onStartGame, onOpenSettings, onLoadGame, saveFileExists }: StartMenuProps) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-6 md:p-8 bg-gradient-to-br from-background to-secondary/50 relative text-center">
       <motion.div
@@ -39,10 +41,21 @@ export function StartMenu({ onStartGame, onOpenSettings }: StartMenuProps) {
           variant="default"
           size="lg"
           className="w-full font-horror text-2xl py-8 rounded-lg shadow-xl hover:shadow-primary/50 transition-shadow duration-300 group"
-          aria-label="Start Game"
+          aria-label="Start New Game"
         >
           <PlayCircle className="mr-3 h-8 w-8 transition-transform duration-300 group-hover:scale-110" />
-          Begin Your Descent
+          Begin New Descent
+        </Button>
+        <Button
+          onClick={onLoadGame}
+          variant="secondary"
+          size="lg"
+          disabled={!saveFileExists}
+          className="w-full font-horror text-xl py-6 rounded-lg shadow-lg hover:shadow-accent/50 transition-shadow duration-300 group disabled:opacity-50 disabled:cursor-not-allowed"
+          aria-label="Load Prior Dread"
+        >
+          <History className="mr-3 h-7 w-7 transition-transform duration-300 group-hover:rotate-[15deg]" />
+          Load Prior Dread
         </Button>
         <Button
           onClick={onOpenSettings}

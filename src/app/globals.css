@@ -1,3 +1,4 @@
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -8,7 +9,8 @@ body {
 
 .font-horror {
   font-family: 'Creepster', cursive, var(--font-geist-sans); /* Fallback to Geist Sans */
-  /* Add any specific styling for horror font, e.g., letter-spacing, text-transform */
+  font-weight: normal; /* Creepster often looks best at normal weight */
+  letter-spacing: 0.05em; /* Optional: add some letter spacing for effect */
 }
 
 
