@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { narrateAdventure, type NarrateAdventureInput, type NarrateAdventureOutput } from '@/ai/flows/narrate-adventure';
@@ -16,11 +16,13 @@ import { SceneVisualization } from '@/components/game/SceneVisualization';
 import { StartMenu } from '@/components/menu/StartMenu';
 import { PlayerHealthDisplay } from '@/components/game/PlayerHealthDisplay';
 import { InventoryDisplay } from '@/components/game/InventoryDisplay'; 
+import { JumpscareOverlay } from '@/components/effects/JumpscareOverlay';
 import { AlertCircle, RotateCcw, SaveIcon } from 'lucide-react';
-import { AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 
 const MAX_HEALTH = 2;
-const SAVE_GAME_KEY = 'dualDreadSaveData_v3'; 
+const MAX_STAMINA = 3;
+const SAVE_GAME_KEY = 'dualDreadSaveData_v4'; // Incremented version for new state
 
 interface GameState {
   narration: string;
@@ -36,6 +38,8 @@ interface GameState {
   turnCount: number;
   playerHealth: number;
   geminiHealth: number;
+  playerStamina: number;
+  geminiStamina: number;
   inventory: string[];
 }
 
@@ -55,6 +59,8 @@ const initialGameState: GameState = {
   turnCount: 0,
   playerHealth: MAX_HEALTH,
   geminiHealth: MAX_HEALTH,
+  playerStamina: MAX_STAMINA,
+  geminiStamina: MAX_STAMINA,
   inventory: [],
 };
 
@@ -132,6 +138,18 @@ export default function DualDreadPage() {
   const [imageLoading, setImageLoading] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
   const [saveFileExists, setSaveFileExists] = useState(false);
+  const [jumpscareActive, setJumpscareActive] = useState(false);
+  const mainContainerRef = useRef<HTMLDivElement>(null);
+
+  // Store previous health to detect loss for jumpscares
+  const prevPlayerHealthRef = useRef<number>(gameState.playerHealth);
+  const prevGeminiHealthRef = useRef<number>(gameState.geminiHealth);
+
+  useEffect(() => {
+    prevPlayerHealthRef.current = gameState.playerHealth;
+    prevGeminiHealthRef.current = gameState.geminiHealth;
+  }, [gameState.playerHealth, gameState.geminiHealth]);
+
 
   useEffect(() => {
     if (typeof window !== 'undefined' && localStorage.getItem(SAVE_GAME_KEY)) {
@@ -155,21 +173,20 @@ export default function DualDreadPage() {
 
   const speakNarration = useCallback((text: string, turnCount: number) => {
     if (typeof window !== 'undefined' && window.speechSynthesis && text) {
-      speechSynthesis.cancel(); // Stop any previous speech
+      speechSynthesis.cancel(); 
   
       const utterance = new SpeechSynthesisUtterance(text);
   
-      // Apply progressive distortion
-      if (turnCount >= 15) { // Very Distorted/Demonic
+      if (turnCount >= 15) { 
         utterance.pitch = 0.3; 
         utterance.rate = 0.6;  
-      } else if (turnCount >= 10) { // Disturbing
+      } else if (turnCount >= 10) { 
         utterance.pitch = 0.6; 
         utterance.rate = 0.8;  
-      } else if (turnCount >= 5) { // Slightly Unsettling
+      } else if (turnCount >= 5) { 
         utterance.pitch = 0.9; 
         utterance.rate = 0.9;  
-      } else { // Normal
+      } else { 
         utterance.pitch = 1.0;
         utterance.rate = 1.0;
       }
@@ -182,14 +199,13 @@ export default function DualDreadPage() {
     if (gameState.narration && gameStarted && !loading && !gameState.gameOver) {
       speakNarration(gameState.narration, gameState.turnCount);
     }
-    // Cleanup speech synthesis on component unmount or if narration quickly changes
     return () => {
       if (typeof window !== 'undefined' && window.speechSynthesis) {
         speechSynthesis.cancel();
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState.narration, gameState.turnCount, gameStarted, loading, gameState.gameOver, speakNarration]);
+  }, [gameState.narration, gameState.turnCount, gameStarted, loading, gameState.gameOver]);
 
 
   const handleGenerateSceneImage = useCallback(async (currentSceneDescription: string, currentTurnCount: number) => {
@@ -211,6 +227,20 @@ export default function DualDreadPage() {
       setImageLoading(false);
     }
   }, []);
+  
+  const triggerJumpscare = () => {
+    setJumpscareActive(true);
+    if (mainContainerRef.current) {
+      mainContainerRef.current.classList.add('shake');
+    }
+    setTimeout(() => {
+      setJumpscareActive(false);
+      if (mainContainerRef.current) {
+        mainContainerRef.current.classList.remove('shake');
+      }
+    }, 300); // Jumpscare duration
+  };
+
 
   const initializeNewGame = useCallback(async () => {
     setLoading(true);
@@ -219,9 +249,8 @@ export default function DualDreadPage() {
     setSceneImageUrl(null);
     setImageError(null);
     if (typeof window !== 'undefined' && window.speechSynthesis) {
-      speechSynthesis.cancel(); // Stop any speech from previous game
+      speechSynthesis.cancel();
     }
-
 
     const randomFlavor = PREDEFINED_INITIAL_FLAVORS[Math.floor(Math.random() * PREDEFINED_INITIAL_FLAVORS.length)];
 
@@ -232,26 +261,32 @@ export default function DualDreadPage() {
         currentSceneDescription: FIXED_STARTING_SCENE, 
         playerHealth: MAX_HEALTH,
         geminiHealth: MAX_HEALTH,
+        playerStamina: MAX_STAMINA,
+        geminiStamina: MAX_STAMINA,
         turnCount: 1, 
         currentInventory: [],
       };
       const response = await narrateAdventure(initialNarrationInput);
       
       const newGameState: GameState = {
-        ...initialGameState,
+        ...initialGameState, // Resets all fields including stamina and inventory
         narration: response.narration || randomFlavor.firstNarration,
         sceneDescription: response.sceneDescription || FIXED_STARTING_SCENE,
         challenge: response.challenge || randomFlavor.initialChallenge,
         availableChoices: getDynamicChoices(response.sceneDescription || FIXED_STARTING_SCENE, response.challenge || randomFlavor.initialChallenge, 1),
         playerHealth: response.updatedPlayerHealth,
         geminiHealth: response.updatedGeminiHealth,
+        playerStamina: response.updatedPlayerStamina,
+        geminiStamina: response.updatedGeminiStamina,
         isPlayerTurn: !response.isGameOver,
         gameOver: response.isGameOver,
         turnCount: 1,
         inventory: response.newItemFound ? [response.newItemFound] : [],
-        errorMessage: null,
       };
       setGameState(newGameState);
+      prevPlayerHealthRef.current = response.updatedPlayerHealth; // Sync refs
+      prevGeminiHealthRef.current = response.updatedGeminiHealth;
+
 
       if (response.isGameOver) {
          toast({
@@ -326,7 +361,7 @@ export default function DualDreadPage() {
     setLoading(true);
     setLoadingMessage("Reliving past dread...");
     if (typeof window !== 'undefined' && window.speechSynthesis) {
-      speechSynthesis.cancel(); // Stop any speech if loading a new game state
+      speechSynthesis.cancel();
     }
     try {
       const savedDataString = localStorage.getItem(SAVE_GAME_KEY);
@@ -338,10 +373,15 @@ export default function DualDreadPage() {
           ...savedData.gameState, 
           playerHealth: savedData.gameState.playerHealth !== undefined ? savedData.gameState.playerHealth : MAX_HEALTH,
           geminiHealth: savedData.gameState.geminiHealth !== undefined ? savedData.gameState.geminiHealth : MAX_HEALTH,
+          playerStamina: savedData.gameState.playerStamina !== undefined ? savedData.gameState.playerStamina : MAX_STAMINA,
+          geminiStamina: savedData.gameState.geminiStamina !== undefined ? savedData.gameState.geminiStamina : MAX_STAMINA,
           inventory: savedData.gameState.inventory || [], 
         };
 
         setGameState(loadedGameState);
+        prevPlayerHealthRef.current = loadedGameState.playerHealth; // Sync refs
+        prevGeminiHealthRef.current = loadedGameState.geminiHealth;
+
         setSceneImageUrl(savedData.sceneImageUrl || null);
         setGameStarted(true);
         setImageError(null);
@@ -380,7 +420,7 @@ export default function DualDreadPage() {
       geminiReasoning: null,
     }));
     if (typeof window !== 'undefined' && window.speechSynthesis) {
-      speechSynthesis.cancel(); // Stop current speech before new turn processing
+      speechSynthesis.cancel(); 
     }
 
     try {
@@ -389,6 +429,7 @@ export default function DualDreadPage() {
         sceneDescription: gameState.sceneDescription,
         availableChoices: gameState.availableChoices, 
         currentGeminiHealth: gameState.geminiHealth,
+        currentGeminiStamina: gameState.geminiStamina,
       };
       const geminiResponse = await interpretChoices(interpretInput);
       
@@ -406,6 +447,8 @@ export default function DualDreadPage() {
         currentSceneDescription: gameState.sceneDescription, 
         playerHealth: gameState.playerHealth,
         geminiHealth: gameState.geminiHealth,
+        playerStamina: gameState.playerStamina,
+        geminiStamina: gameState.geminiStamina,
         turnCount: gameState.turnCount + 1, 
         currentInventory: gameState.inventory,
       };
@@ -420,6 +463,10 @@ export default function DualDreadPage() {
       if (narrationResponse.itemUsed) {
         updatedInventory = updatedInventory.filter(item => item !== narrationResponse.itemUsed);
       }
+      
+      // Check for health loss to trigger jumpscare BEFORE updating health in state
+      const playerLostHealth = narrationResponse.updatedPlayerHealth < gameState.playerHealth;
+      const geminiLostHealth = narrationResponse.updatedGeminiHealth < gameState.geminiHealth;
 
       setGameState(prev => ({
         ...prev,
@@ -428,12 +475,21 @@ export default function DualDreadPage() {
         challenge: narrationResponse.challenge,
         playerHealth: narrationResponse.updatedPlayerHealth,
         geminiHealth: narrationResponse.updatedGeminiHealth,
+        playerStamina: narrationResponse.updatedPlayerStamina,
+        geminiStamina: narrationResponse.updatedGeminiStamina,
         inventory: updatedInventory,
         availableChoices: narrationResponse.isGameOver ? [] : getDynamicChoices(narrationResponse.sceneDescription, narrationResponse.challenge, prev.turnCount + 1),
         isPlayerTurn: !narrationResponse.isGameOver,
         gameOver: narrationResponse.isGameOver,
         turnCount: prev.turnCount + 1,
       }));
+      
+      if ((playerLostHealth || geminiLostHealth) && !narrationResponse.isGameOver && gameStarted) {
+         if(narrationResponse.playerLostHealthThisTurn || narrationResponse.geminiLostHealthThisTurn) {
+            triggerJumpscare();
+         }
+      }
+
 
       if (narrationResponse.isGameOver) {
         toast({
@@ -469,7 +525,8 @@ export default function DualDreadPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-6 md:p-8 bg-gradient-to-br from-background to-secondary/50 relative">
+    <div ref={mainContainerRef} className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-6 md:p-8 bg-gradient-to-br from-background to-secondary/50 relative">
+      <JumpscareOverlay active={jumpscareActive} />
       <header className="w-full max-w-3xl mb-6 text-center">
         <h1 className="font-horror text-5xl sm:text-6xl md:text-7xl text-primary animate-pulse">Dual Dread</h1>
         <p className="text-lg text-muted-foreground italic mt-2">A cooperative horror text adventure.</p>
@@ -492,9 +549,12 @@ export default function DualDreadPage() {
         <PlayerHealthDisplay 
           playerName="You" 
           playerHealth={gameState.playerHealth}
+          playerStamina={gameState.playerStamina}
           geminiName="Gemini"
           geminiHealth={gameState.geminiHealth}
+          geminiStamina={gameState.geminiStamina}
           maxHealth={MAX_HEALTH}
+          maxStamina={MAX_STAMINA}
         />
 
         <SceneVisualization
@@ -568,4 +628,3 @@ export default function DualDreadPage() {
     </div>
   );
 }
-
