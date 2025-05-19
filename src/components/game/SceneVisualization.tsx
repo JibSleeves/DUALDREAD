@@ -5,7 +5,7 @@
 import React from 'react';
 import Image from 'next/image';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, ImageOff, AlertTriangleIcon, ThermometerSnow, Ghost } from 'lucide-react'; // Added more icons
+import { Loader2, ImageOff, AlertTriangleIcon, Snowflake, Ghost } from 'lucide-react'; // Replaced ThermometerSnow with Snowflake
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface SceneVisualizationProps {
@@ -56,7 +56,7 @@ export function SceneVisualization({ imageUrl, isLoading, error, sceneDescriptio
   const altText = sceneDescription ? `Visualization of: ${sceneDescription.substring(0, 100)}...` : "Scene visualization";
   const placeholderHint = getHintFromDescription(sceneDescription);
 
-  const placeholderIcons = [ImageOff, ThermometerSnow, Ghost];
+  const placeholderIcons = [ImageOff, Snowflake, Ghost]; // Updated to use Snowflake
   const PlaceholderIcon = placeholderIcons[Math.floor(Math.random() * placeholderIcons.length)];
 
 
