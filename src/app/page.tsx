@@ -15,14 +15,14 @@ import { LoadingSpinner } from '@/components/game/LoadingSpinner';
 import { SceneVisualization } from '@/components/game/SceneVisualization';
 import { StartMenu } from '@/components/menu/StartMenu';
 import { PlayerHealthDisplay } from '@/components/game/PlayerHealthDisplay';
-import { InventoryDisplay } from '@/components/game/InventoryDisplay'; 
+import { InventoryDisplay } from '@/components/game/InventoryDisplay';
 import { JumpscareOverlay } from '@/components/effects/JumpscareOverlay';
 import { AlertCircle, RotateCcw, SaveIcon } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 
 const MAX_HEALTH = 2;
 const MAX_STAMINA = 3;
-const SAVE_GAME_KEY = 'dualDreadSaveData_v4'; // Incremented version for new state
+const SAVE_GAME_KEY = 'dualDreadSaveData_v4';
 
 interface GameState {
   narration: string;
@@ -109,20 +109,22 @@ const PREDEFINED_INITIAL_FLAVORS: Array<{
 
 function getDynamicChoices(sceneDescription: string, challenge: string, turnCount: number): string[] {
   const uniqueChoices = new Set<string>();
-  const basePool = [...STATIC_CHOICES_POOL]; 
+  const basePool = [...STATIC_CHOICES_POOL];
   for (let i = basePool.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [basePool[i], basePool[j]] = [basePool[j], basePool[i]];
   }
-  
+
   while(uniqueChoices.size < 3 && basePool.length > 0) {
     const choiceIndex = Math.floor(Math.random() * basePool.length);
     uniqueChoices.add(basePool.splice(choiceIndex, 1)[0]);
   }
+  // Ensure 3 choices by falling back to the start of the static pool if needed
   if (uniqueChoices.size < 3) {
-    STATIC_CHOICES_POOL.slice(0, 3 - uniqueChoices.size).forEach(c => uniqueChoices.add(c));
+    const needed = 3 - uniqueChoices.size;
+    STATIC_CHOICES_POOL.slice(0, needed).forEach(c => uniqueChoices.add(c));
   }
-  
+
   return Array.from(uniqueChoices);
 }
 
@@ -141,7 +143,6 @@ export default function DualDreadPage() {
   const [jumpscareActive, setJumpscareActive] = useState(false);
   const mainContainerRef = useRef<HTMLDivElement>(null);
 
-  // Store previous health to detect loss for jumpscares
   const prevPlayerHealthRef = useRef<number>(gameState.playerHealth);
   const prevGeminiHealthRef = useRef<number>(gameState.geminiHealth);
 
@@ -161,10 +162,10 @@ export default function DualDreadPage() {
   const handleError = useCallback((error: any, message: string) => {
     console.error(message, error);
     const errorMessage = error instanceof Error ? error.message : String(error);
-    setGameState(prev => ({ ...prev, errorMessage: `${message}: ${errorMessage}`, isPlayerTurn: true }));
+    setGameState(prev => ({ ...prev, errorMessage: `${message}: ${errorMessage.slice(0, 200)}`, isPlayerTurn: true }));
     toast({
       title: "An Error Occurred",
-      description: `${message}. Please try again.`,
+      description: `${message.slice(0,100)}. Please try again.`,
       variant: "destructive",
     });
     setLoading(false);
@@ -173,24 +174,24 @@ export default function DualDreadPage() {
 
   const speakNarration = useCallback((text: string, turnCount: number) => {
     if (typeof window !== 'undefined' && window.speechSynthesis && text) {
-      speechSynthesis.cancel(); 
-  
+      speechSynthesis.cancel();
+
       const utterance = new SpeechSynthesisUtterance(text);
-  
-      if (turnCount >= 15) { 
-        utterance.pitch = 0.3; 
-        utterance.rate = 0.6;  
-      } else if (turnCount >= 10) { 
-        utterance.pitch = 0.6; 
-        utterance.rate = 0.8;  
-      } else if (turnCount >= 5) { 
-        utterance.pitch = 0.9; 
-        utterance.rate = 0.9;  
-      } else { 
+
+      if (turnCount >= 15) {
+        utterance.pitch = 0.3;
+        utterance.rate = 0.6;
+      } else if (turnCount >= 10) {
+        utterance.pitch = 0.6;
+        utterance.rate = 0.8;
+      } else if (turnCount >= 5) {
+        utterance.pitch = 0.9;
+        utterance.rate = 0.9;
+      } else {
         utterance.pitch = 1.0;
         utterance.rate = 1.0;
       }
-      
+
       speechSynthesis.speak(utterance);
     }
   }, []);
@@ -213,9 +214,9 @@ export default function DualDreadPage() {
     setImageLoading(true);
     setImageError(null);
     try {
-      const imageInput: GenerateSceneImageInput = { 
+      const imageInput: GenerateSceneImageInput = {
         sceneDescription: currentSceneDescription,
-        turnCount: currentTurnCount 
+        turnCount: currentTurnCount
       };
       const imageResponse = await generateSceneImage(imageInput);
       setSceneImageUrl(imageResponse.imageDataUri);
@@ -227,7 +228,7 @@ export default function DualDreadPage() {
       setImageLoading(false);
     }
   }, []);
-  
+
   const triggerJumpscare = () => {
     setJumpscareActive(true);
     if (mainContainerRef.current) {
@@ -238,14 +239,14 @@ export default function DualDreadPage() {
       if (mainContainerRef.current) {
         mainContainerRef.current.classList.remove('shake');
       }
-    }, 300); // Jumpscare duration
+    }, 300);
   };
 
 
   const initializeNewGame = useCallback(async () => {
     setLoading(true);
     setLoadingMessage("The familiar dread washes over you...");
-    setGameState(initialGameState); 
+    setGameState(initialGameState);
     setSceneImageUrl(null);
     setImageError(null);
     if (typeof window !== 'undefined' && window.speechSynthesis) {
@@ -258,18 +259,18 @@ export default function DualDreadPage() {
       const initialNarrationInput: NarrateAdventureInput = {
         userChoice: randomFlavor.initialUserChoice,
         geminiChoice: randomFlavor.initialGeminiChoice,
-        currentSceneDescription: FIXED_STARTING_SCENE, 
+        currentSceneDescription: FIXED_STARTING_SCENE,
         playerHealth: MAX_HEALTH,
         geminiHealth: MAX_HEALTH,
         playerStamina: MAX_STAMINA,
         geminiStamina: MAX_STAMINA,
-        turnCount: 1, 
+        turnCount: 1,
         currentInventory: [],
       };
       const response = await narrateAdventure(initialNarrationInput);
-      
+
       const newGameState: GameState = {
-        ...initialGameState, // Resets all fields including stamina and inventory
+        ...initialGameState,
         narration: response.narration || randomFlavor.firstNarration,
         sceneDescription: response.sceneDescription || FIXED_STARTING_SCENE,
         challenge: response.challenge || randomFlavor.initialChallenge,
@@ -284,7 +285,7 @@ export default function DualDreadPage() {
         inventory: response.newItemFound ? [response.newItemFound] : [],
       };
       setGameState(newGameState);
-      prevPlayerHealthRef.current = response.updatedPlayerHealth; // Sync refs
+      prevPlayerHealthRef.current = response.updatedPlayerHealth;
       prevGeminiHealthRef.current = response.updatedGeminiHealth;
 
 
@@ -300,13 +301,13 @@ export default function DualDreadPage() {
     } catch (error) {
       handleError(error, "Failed to initialize new game narration");
        setGameState(prev => ({
-        ...initialGameState, 
+        ...initialGameState,
         sceneDescription: FIXED_STARTING_SCENE,
-        narration: randomFlavor.firstNarration, 
-        challenge: randomFlavor.initialChallenge, 
+        narration: randomFlavor.firstNarration,
+        challenge: randomFlavor.initialChallenge,
         availableChoices: getDynamicChoices(FIXED_STARTING_SCENE, randomFlavor.initialChallenge, 0),
-        isPlayerTurn: true, 
-        turnCount: 1, 
+        isPlayerTurn: true,
+        turnCount: 1,
       }));
     } finally {
       setLoading(false);
@@ -326,7 +327,7 @@ export default function DualDreadPage() {
     setGameStarted(true);
     initializeNewGame();
   };
-  
+
   const handleOpenSettings = () => {
     toast({
       title: "Settings",
@@ -336,12 +337,12 @@ export default function DualDreadPage() {
   };
 
   const saveGame = () => {
-    if (gameState.gameOver && gameState.turnCount > 0) { 
-      toast({ title: "Cannot Save", description: "The story has concluded.", variant: "destructive" });
+    if (gameState.gameOver && gameState.turnCount > 0) {
+      toast({ title: "Cannot Save", description: "The story has concluded. There is nothing left to save.", variant: "destructive" });
       return;
     }
     if (gameState.turnCount === 0 && !gameState.narration) {
-      toast({ title: "Cannot Save", description: "Start a game first.", variant: "default" });
+      toast({ title: "Cannot Save", description: "The adventure has not truly begun. Make your first move.", variant: "default" });
       return;
     }
     try {
@@ -351,15 +352,15 @@ export default function DualDreadPage() {
       };
       localStorage.setItem(SAVE_GAME_KEY, JSON.stringify(saveData));
       setSaveFileExists(true);
-      toast({ title: "Progress Saved", description: "Your dread has been chronicled." });
+      toast({ title: "Progress Saved", description: "Your descent into dread has been chronicled..." });
     } catch (error) {
-      handleError(error, "Failed to save game");
+      handleError(error, "Failed to save game. Your progress may be lost to the void.");
     }
   };
 
   const loadGame = () => {
     setLoading(true);
-    setLoadingMessage("Reliving past dread...");
+    setLoadingMessage("Reliving past terrors...");
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       speechSynthesis.cancel();
     }
@@ -367,26 +368,26 @@ export default function DualDreadPage() {
       const savedDataString = localStorage.getItem(SAVE_GAME_KEY);
       if (savedDataString) {
         const savedData = JSON.parse(savedDataString);
-        
+
         const loadedGameState: GameState = {
-          ...initialGameState, 
-          ...savedData.gameState, 
+          ...initialGameState,
+          ...savedData.gameState,
           playerHealth: savedData.gameState.playerHealth !== undefined ? savedData.gameState.playerHealth : MAX_HEALTH,
           geminiHealth: savedData.gameState.geminiHealth !== undefined ? savedData.gameState.geminiHealth : MAX_HEALTH,
           playerStamina: savedData.gameState.playerStamina !== undefined ? savedData.gameState.playerStamina : MAX_STAMINA,
           geminiStamina: savedData.gameState.geminiStamina !== undefined ? savedData.gameState.geminiStamina : MAX_STAMINA,
-          inventory: savedData.gameState.inventory || [], 
+          inventory: savedData.gameState.inventory || [],
         };
 
         setGameState(loadedGameState);
-        prevPlayerHealthRef.current = loadedGameState.playerHealth; // Sync refs
+        prevPlayerHealthRef.current = loadedGameState.playerHealth;
         prevGeminiHealthRef.current = loadedGameState.geminiHealth;
 
         setSceneImageUrl(savedData.sceneImageUrl || null);
         setGameStarted(true);
         setImageError(null);
-        setImageLoading(false); 
-        toast({ title: "Game Loaded", description: "The nightmare continues..." });
+        setImageLoading(false);
+        toast({ title: "Game Loaded", description: "The nightmare resumes..." });
 
         if (!loadedGameState.gameOver && loadedGameState.availableChoices.length === 0 && loadedGameState.turnCount > 0) {
              setGameState(prev => ({
@@ -395,11 +396,12 @@ export default function DualDreadPage() {
             }));
         }
       } else {
-        toast({ title: "Load Failed", description: "No prior dread found to relive.", variant: "destructive" });
+        toast({ title: "Load Failed", description: "No prior dread found. A fresh nightmare awaits.", variant: "destructive" });
+        setGameStarted(false); // Ensure we go back to start menu if load fails
       }
     } catch (error) {
-      handleError(error, "Failed to load game");
-      setGameStarted(false); 
+      handleError(error, "Failed to load game. The save data may be corrupted.");
+      setGameStarted(false);
     } finally {
       setLoading(false);
     }
@@ -410,30 +412,30 @@ export default function DualDreadPage() {
     if (gameState.gameOver || !gameState.isPlayerTurn) return;
 
     setLoading(true);
-    setLoadingMessage("Gemini is contemplating its move...");
+    setLoadingMessage("Gemini sinks into the shadows, contemplating...");
     setGameState(prev => ({
       ...prev,
       userSelectedChoice: playerChoice,
       isPlayerTurn: false,
       errorMessage: null,
-      geminiSelectedChoice: null, 
+      geminiSelectedChoice: null,
       geminiReasoning: null,
     }));
     if (typeof window !== 'undefined' && window.speechSynthesis) {
-      speechSynthesis.cancel(); 
+      speechSynthesis.cancel();
     }
 
     try {
       // Gemini's Turn
       const interpretInput: InterpretChoicesInput = {
         sceneDescription: gameState.sceneDescription,
-        availableChoices: gameState.availableChoices, 
+        availableChoices: gameState.availableChoices,
         currentGeminiHealth: gameState.geminiHealth,
         currentGeminiStamina: gameState.geminiStamina,
       };
       const geminiResponse = await interpretChoices(interpretInput);
-      
-      setLoadingMessage("The story warps and twists...");
+
+      setLoadingMessage("The tendrils of fate warp and twist...");
       setGameState(prev => ({
         ...prev,
         geminiSelectedChoice: geminiResponse.chosenOption,
@@ -444,29 +446,29 @@ export default function DualDreadPage() {
       const narrateInput: NarrateAdventureInput = {
         userChoice: playerChoice,
         geminiChoice: geminiResponse.chosenOption,
-        currentSceneDescription: gameState.sceneDescription, 
+        currentSceneDescription: gameState.sceneDescription,
         playerHealth: gameState.playerHealth,
         geminiHealth: gameState.geminiHealth,
         playerStamina: gameState.playerStamina,
         geminiStamina: gameState.geminiStamina,
-        turnCount: gameState.turnCount + 1, 
+        turnCount: gameState.turnCount + 1,
         currentInventory: gameState.inventory,
       };
       const narrationResponse = await narrateAdventure(narrateInput);
 
       let updatedInventory = [...gameState.inventory];
       if (narrationResponse.newItemFound) {
-        if (!updatedInventory.includes(narrationResponse.newItemFound)) { 
+        if (!updatedInventory.includes(narrationResponse.newItemFound)) {
           updatedInventory.push(narrationResponse.newItemFound);
         }
       }
       if (narrationResponse.itemUsed) {
         updatedInventory = updatedInventory.filter(item => item !== narrationResponse.itemUsed);
       }
-      
-      // Check for health loss to trigger jumpscare BEFORE updating health in state
-      const playerLostHealth = narrationResponse.updatedPlayerHealth < gameState.playerHealth;
-      const geminiLostHealth = narrationResponse.updatedGeminiHealth < gameState.geminiHealth;
+
+      const playerLostHealthThisTurnByLLM = narrationResponse.playerLostHealthThisTurn === true;
+      const geminiLostHealthThisTurnByLLM = narrationResponse.geminiLostHealthThisTurn === true;
+
 
       setGameState(prev => ({
         ...prev,
@@ -483,31 +485,29 @@ export default function DualDreadPage() {
         gameOver: narrationResponse.isGameOver,
         turnCount: prev.turnCount + 1,
       }));
-      
-      if ((playerLostHealth || geminiLostHealth) && !narrationResponse.isGameOver && gameStarted) {
-         if(narrationResponse.playerLostHealthThisTurn || narrationResponse.geminiLostHealthThisTurn) {
-            triggerJumpscare();
-         }
+
+      if ((playerLostHealthThisTurnByLLM || geminiLostHealthThisTurnByLLM) && !narrationResponse.isGameOver && gameStarted) {
+         triggerJumpscare();
       }
 
 
       if (narrationResponse.isGameOver) {
         toast({
-          title: narrationResponse.updatedPlayerHealth <= 0 && narrationResponse.updatedGeminiHealth <= 0 ? "Mutual Annihilation" 
-               : narrationResponse.updatedPlayerHealth <= 0 ? "Your Light Extinguished" 
-               : "Gemini Deactivated",
-          description: narrationResponse.narration || "The cycle of dread concludes... for now.",
+          title: narrationResponse.updatedPlayerHealth <= 0 && narrationResponse.updatedGeminiHealth <= 0 ? "TOTAL PARTY KILL"
+               : narrationResponse.updatedPlayerHealth <= 0 ? "YOUR SOUL IS LOST"
+               : "GEMINI IS NO MORE",
+          description: narrationResponse.narration || "The darkness has claimed its due. Silence falls.",
           variant: "destructive",
-          duration: 10000,
+          duration: 15000,
         });
       }
 
     } catch (error) {
-      handleError(error, "Failed to process turn");
+      handleError(error, "Failed to process turn. The narrative unravels.");
       setGameState(prev => ({
         ...prev,
-        isPlayerTurn: true, 
-        userSelectedChoice: null, 
+        isPlayerTurn: true,
+        userSelectedChoice: null,
       }));
     } finally {
       setLoading(false);
@@ -515,19 +515,19 @@ export default function DualDreadPage() {
   };
 
   const handleRestartGame = () => {
-    setGameStarted(true); 
-    initializeNewGame(); 
+    setGameStarted(true);
+    initializeNewGame();
   };
-  
+
 
   if (!gameStarted) {
     return <StartMenu onStartGame={handleStartNewGame} onOpenSettings={handleOpenSettings} onLoadGame={loadGame} saveFileExists={saveFileExists} />;
   }
 
   return (
-    <div ref={mainContainerRef} className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-6 md:p-8 bg-gradient-to-br from-background to-secondary/50 relative">
+    <div ref={mainContainerRef} className="min-h-screen flex flex-col items-center justify-start p-4 sm:p-6 md:p-8 bg-gradient-to-br from-background to-secondary/70 relative">
       <JumpscareOverlay active={jumpscareActive} />
-      <header className="w-full max-w-3xl mb-6 text-center">
+      <header className="w-full max-w-3xl mb-6 text-center pt-8">
         <h1 className="font-horror text-5xl sm:text-6xl md:text-7xl text-primary animate-pulse">Dual Dread</h1>
         <p className="text-lg text-muted-foreground italic mt-2">A cooperative horror text adventure.</p>
       </header>
@@ -540,14 +540,17 @@ export default function DualDreadPage() {
         )}
 
         {!loading && gameState.errorMessage && (
-          <div className="bg-destructive/20 border border-destructive text-destructive-foreground p-4 rounded-md flex items-center">
-            <AlertCircle className="h-5 w-5 mr-2" />
-            <p>{gameState.errorMessage}</p>
+          <div className="bg-destructive/30 border border-destructive text-destructive-foreground p-4 rounded-lg shadow-lg flex items-center space-x-3">
+            <AlertCircle className="h-6 w-6 shrink-0" />
+            <div>
+                <h3 className="font-semibold">A Shadow Falls Upon Us...</h3>
+                <p className="text-sm">{gameState.errorMessage}</p>
+            </div>
           </div>
         )}
-        
-        <PlayerHealthDisplay 
-          playerName="You" 
+
+        <PlayerHealthDisplay
+          playerName="You"
           playerHealth={gameState.playerHealth}
           playerStamina={gameState.playerStamina}
           geminiName="Gemini"
@@ -565,7 +568,7 @@ export default function DualDreadPage() {
         />
 
         <InventoryDisplay items={gameState.inventory} />
-        
+
         <SceneDisplay
           narration={gameState.narration}
           sceneDescription={gameState.sceneDescription}
@@ -591,40 +594,47 @@ export default function DualDreadPage() {
             disabled={loading || !gameState.isPlayerTurn || imageLoading}
           />
         )}
-        
+
         {loading && (
            <div className="flex justify-center py-4">
              <LoadingSpinner message={loadingMessage} />
            </div>
         )}
-        
+
         {gameState.gameOver && (
-          <div className="text-center p-6 bg-card/80 backdrop-blur-sm rounded-lg shadow-xl">
-            <h2 className="font-horror text-4xl text-destructive mb-4">Game Over</h2>
-            <p className="text-muted-foreground mb-6">{gameState.narration || "The darkness consumes all."}</p>
-            <Button onClick={handleRestartGame} variant="default" size="lg" className="font-horror">
-              <RotateCcw className="mr-2 h-5 w-5" /> Face the Dread Again?
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.5, ease: "easeOut" }}
+            className="text-center p-6 bg-card/90 backdrop-blur-md rounded-lg shadow-xl border border-destructive/50"
+          >
+            <h2 className="font-horror text-5xl text-destructive mb-4 animate-pulse">THE END?</h2>
+            <p className="text-muted-foreground mb-6 text-lg">{gameState.narration || "The darkness consumes all. Silence reigns."}</p>
+            <Button onClick={handleRestartGame} variant="destructive" size="lg" className="font-horror text-xl py-3 px-6 group">
+              <RotateCcw className="mr-2 h-6 w-6 transition-transform group-hover:rotate-[-90deg]" /> Face the Dread Anew
             </Button>
-          </div>
+          </motion.div>
         )}
 
         {!gameState.gameOver && (
-          <div className="mt-8 flex flex-col sm:flex-row justify-center items-center gap-4">
-            <Button onClick={saveGame} variant="outline" className="border-primary/50 hover:bg-primary/10">
-              <SaveIcon className="mr-2 h-4 w-4" /> Save Your Sanity
+          <div className="mt-8 flex flex-col sm:flex-row justify-center items-center gap-4 pb-8">
+            <Button onClick={saveGame} variant="outline" className="font-semibold border-primary/70 hover:bg-primary/10 hover:text-primary-foreground text-base py-3 px-5">
+              <SaveIcon className="mr-2 h-5 w-5" /> Chronicle Your Sanity
             </Button>
-            <Button onClick={handleRestartGame} variant="outline" className="border-primary/50 hover:bg-primary/10">
-              <RotateCcw className="mr-2 h-4 w-4" /> Restart Adventure
+            <Button onClick={handleRestartGame} variant="outline" className="font-semibold border-accent/70 hover:bg-accent/10 hover:text-accent-foreground text-base py-3 px-5">
+              <RotateCcw className="mr-2 h-5 w-5" /> Flee This Nightmare (Restart)
             </Button>
           </div>
         )}
       </main>
-      
-      <footer className="w-full max-w-3xl mt-12 text-center">
+
+      <footer className="w-full max-w-3xl mt-12 pb-8 text-center">
         <p className="text-sm text-muted-foreground/70">
-          Dual Dread &copy; {new Date().getFullYear()}. All rights reserved.
+          Dual Dread &copy; {new Date().getFullYear()}. The shadows are always watching.
         </p>
       </footer>
     </div>
   );
 }
+
+    
